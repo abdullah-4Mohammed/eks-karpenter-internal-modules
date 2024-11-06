@@ -1,10 +1,10 @@
 variables:
   region: 'eu-west-2'
   awsConnection: "AzToAWS"
+  serviceName: three-tiers-full
   backendBucketName: "backend-tfstate"
   backendBucket: "$(serviceName)-$(backendBucketName)-$(environment)-$(regionShortName)"
   regionShortName: euw2
-  serviceName: threeTiers-full
   environment: nonprod
   ecrName: "$(serviceName)-$(environment)-$(regionShortName)"
   imageRepository: "$(serviceName)-nonprod-euw2"
