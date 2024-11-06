@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: backend-check
+data:
+  DATABASE_HOST: "mongodb-service.backend-check.svc.cluster.local"
+  DATABASE_NAME: "mydatabase"

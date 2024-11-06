@@ -1,24 +1,12 @@
 apiVersion: v1
 kind: Service
-metadata: 
-  name: frontend
-  namespace: three-tier
+metadata:
+  name: frontend-service
+  namespace: backend-check
 spec:
-  ports:
-  - port: 3000
-    protocol: TCP
-  type: ClusterIP
   selector:
-    role: frontend
-
-# apiVersion: v1
-# kind: Service
-# metadata:
-#   name: frontend-service
-# spec:
-#   ports:
-#     - port: 5000
-#       targetPort: 5000
-#   selector:
-#     app: frontend
-#   type: ClusterIP #LoadBalancer #ClusterIP
+    app: frontend
+  ports:
+  - port: 5000
+    targetPort: 5000
+  type: ClusterIP
