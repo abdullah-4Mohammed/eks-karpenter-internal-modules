@@ -8,5 +8,5 @@ spec:
     app: frontend
   ports:
   - port: 5000
-    targetPort: 5000
-  type: ClusterIP
+    targetPort: 80
+  type: ClusterIP #LoadBalancer #ClusterIP
