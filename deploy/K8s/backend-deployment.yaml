@@ -26,28 +26,5 @@ spec:
           value: mongodb
         - name: PORT
           value: "3001"
-
-        # - name: DATABASE_USER
-        #   valueFrom:
-        #     secretKeyRef:
-        #       name: mongodb-secret
-        #       key: DATABASE_USER
-        # - name: DATABASE_PASSWORD
-        #   valueFrom:
-        #     secretKeyRef:
-        #       name: mongodb-secret
-        #       key: DATABASE_PASSWORD
-        # - name: DATABASE_HOST
-        #   valueFrom:
-        #     configMapKeyRef:
-        #       name: backend-config
-        #       key: DATABASE_HOST
-        # - name: DATABASE_NAME
-        #   valueFrom:
-        #     configMapKeyRef:
-        #       name: backend-config
-        #       key: DATABASE_NAME
-        # - name: PORT
-        #   value: "3001"
         ports:
         - containerPort: 3001
