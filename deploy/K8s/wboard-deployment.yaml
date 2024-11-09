@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
       - name: frontend
-        image: 626635436469.dkr.ecr.eu-west-2.amazonaws.com/three-tiers-full-nonprod-euw2:frontend-445
+        image: 626635436469.dkr.ecr.eu-west-2.amazonaws.com/three-tiers-full-nonprod-euw2:frontend-448
         env:
         - name: VUE_APP_API_URL
           value: http://wbapp.test.dv/api
