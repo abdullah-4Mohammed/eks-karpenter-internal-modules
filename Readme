@@ -1,0 +1,32 @@
+Project: Three-Tier Application Deployment
+Overview
+This project demonstrates the deployment of a three-tier application consisting of a frontend, backend, and MongoDB service. The application is built with Docker and deployed to Amazon EKS (Elastic Kubernetes Service). The frontend and backend services communicate via Kubernetes Ingress and external DNS routing.
+
+Components
+Frontend: A Vue.js application hosted on NGINX, served as a static site.
+Backend: A RESTful API built with Nest.js, running on port 3001.
+MongoDB: A MongoDB service running in the Kubernetes cluster.
+Infrastructure and Pipeline
+Terraform: Used for infrastructure as code (IaC) to manage and provision the resources on AWS, including EKS clusters and associated services.
+Azure DevOps: Handles the continuous integration (CI) and continuous deployment (CD) pipeline to build, test, and deploy Docker images for the frontend, backend, and MongoDB services to EKS.
+Key Technologies
+Docker: For building containerized applications.
+Kubernetes (EKS): For container orchestration and deployment.
+NGINX Ingress: For routing traffic to the appropriate services within the Kubernetes cluster.
+Cloudflare DNS: Used to route domain traffic (wbapp.test.dv) to the appropriate EKS service.
+Terraform: For IaC to provision AWS resources.
+Azure DevOps: For pipeline automation to build and push images to ECR and deploy to EKS.
+Deployment
+Set Up Terraform Infrastructure:
+Use Terraform to provision the EKS cluster, associated VPC, and security groups.
+Configure IAM roles and policies for EKS access.
+Build Docker Images:
+Use Azure DevOps pipelines to build and push Docker images for frontend, backend, and MongoDB services to Amazon ECR.
+Deploy to EKS:
+Use Kubernetes manifests for deployment, ensuring each service is running in the appropriate namespace (backend-check).
+Configure Ingress:
+Set up an NGINX Ingress resource to route HTTP traffic from wbapp.test.dv to the backend and frontend services.
+DNS Routing:
+Configure Cloudflare DNS to point to the AWS Load Balancer (ELB) of the EKS cluster for external access.
+Environment Variables
+VUE_APP_API_URL: Dynamically set via Kubernetes Deployment, used by the frontend to interact with the backend API.
