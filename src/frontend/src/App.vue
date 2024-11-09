@@ -17,7 +17,7 @@ export default {
   methods: {
     async fetchBackend() {
       try {
-        const response = await fetch(`${process.env.VUE_APP_API_URL}/api`);
+        const response = await fetch(`${process.env.VUE_APP_API_URL}`);
         this.message = await response.text();
       } catch (error) {
         this.message = "Error connecting to backend";
