@@ -8,6 +8,9 @@ steps:
     inlineScript: |
       set -ex
       aws eks --region $(region) update-kubeconfig --name $(clusterName)
+      
+      kubectl apply -f $(System.DefaultWorkingDirectory)/deploy/K8s/namespace.yaml
+
       kubectl apply -f $(System.DefaultWorkingDirectory)/deploy/K8s/mongodb-deployment.yaml
       kubectl apply -f $(System.DefaultWorkingDirectory)/deploy/K8s/mongodb-service.yaml
       
@@ -17,10 +20,6 @@ steps:
       kubectl apply -f $(System.DefaultWorkingDirectory)/deploy/K8s/wboard-deployment.yaml
       kubectl apply -f $(System.DefaultWorkingDirectory)/deploy/K8s/wboard-service.yaml
 
-      kubectl apply -f $(System.DefaultWorkingDirectory)/deploy/K8s/secrets.yaml
-
-      kubectl apply -f $(System.DefaultWorkingDirectory)/deploy/K8s/pvc.yaml
-      kubectl apply -f $(System.DefaultWorkingDirectory)/deploy/K8s/pv.yaml
 
 
      
