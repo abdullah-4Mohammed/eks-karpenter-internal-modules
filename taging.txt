@@ -1,0 +1,55 @@
+# Get the subnets associated with the node group in text format
+$SubnetsText = aws eks describe-nodegroup `
+    --cluster-name "eks-karpenter-eks" `
+    --nodegroup-name "eks-karpenter-eks-node-group" `
+    --query "nodegroup.subnets" `
+    --output text
+
+# Parse the output into an array of subnet IDs
+$SubnetArray = $SubnetsText.Trim() -split '\s+' # Split by any whitespace
+
+# Apply the tag to each subnet
+foreach ($Subnet in $SubnetArray) {
+    Write-Host "Applying tags to subnet: $Subnet"
+    aws ec2 create-tags `
+        --resources $Subnet `
+        --tags Key=karpenter.sh/discovery,Value=eks-karpenter-eks `
+        --output json
+}
+
+# Verify that tags have been applied to each subnet
+foreach ($Subnet in $SubnetArray) {
+    Write-Host "Verifying tags for subnet: ${Subnet}"
+    
+    # Describe the subnet to get its tags
+    $SubnetTags = aws ec2 describe-subnets `
+        --subnet-ids $Subnet `
+        --query "Subnets[0].Tags" `
+        --output json
+    
+    # Output the tags for verification
+    if ($SubnetTags) {
+        Write-Host "Tags for subnet ${Subnet}:"
+        $SubnetTags | ConvertFrom-Json | ForEach-Object { Write-Host "$($_.Key): $($_.Value)" }
+    } else {
+        Write-Host "No tags found for subnet ${Subnet}"
+    }
+}
+
+
+sg tag
+
+# Get the node group name
+$NODEGROUP = aws eks list-nodegroups --cluster-name "eks-karpenter-eks" --query 'nodegroups[0]' --output text
+Write-Host "Node Group: $NODEGROUP"
+
+# Get the launch template ID and version
+$LAUNCH_TEMPLATE = aws eks describe-nodegroup --cluster-name "eks-karpenter-eks" --nodegroup-name $NODEGROUP --query 'nodegroup.launchTemplate.{id:id,version:version}' --output text
+Write-Host "Launch Template: $LAUNCH_TEMPLATE"
+
+# Get the security group ID
+$SECURITY_GROUPS = aws eks describe-cluster --name "eks-karpenter-eks" --query "cluster.resourcesVpcConfig.clusterSecurityGroupId" --output text
+Write-Host "Security Group: $SECURITY_GROUPS"
+
+# Apply the tag to the security group
+aws ec2 create-tags --resources $SECURITY_GROUPS --tags Key=karpenter.sh/discovery,Value=eks-karpenter-eks
