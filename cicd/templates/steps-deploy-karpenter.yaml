@@ -56,6 +56,7 @@ steps:
         AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
         AWS_PARTITION=$(aws sts get-caller-identity --query Arn --output text | cut -d":" -f2)
         OIDC_ENDPOINT=$(aws eks describe-cluster --name $(clusterName) --query "cluster.identity.oidc.issuer" --output text)
+        OIDC_PROVIDER=$(aws eks describe-cluster --name eks-karpenter-eks --query "cluster.identity.oidc.issuer" --output text | sed -e "s/^https:\/\///")
 
         # Define the trust policy document for the Karpenter Controller role
         KARPENTER_CONTROLLER_TRUST_POLICY=$(cat <<EOF
@@ -65,12 +66,12 @@ steps:
             {
               "Effect": "Allow",
               "Principal": {
-                "Federated": "${OIDC_ENDPOINT}"
+                "Federated": "arn:aws:iam::${AWS_ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"
               },
               "Action": "sts:AssumeRoleWithWebIdentity",
               "Condition": {
                 "StringEquals": {
-                  "${OIDC_ENDPOINT}:sub": "system:serviceaccount:karpenter:karpenter"
+                  "${OIDC_PROVIDER}:sub": "system:serviceaccount:karpenter:karpenter"
                 }
               }
             }
