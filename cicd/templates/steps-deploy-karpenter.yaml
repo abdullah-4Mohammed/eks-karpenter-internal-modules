@@ -5,55 +5,39 @@ steps:
     inputs:
       helmVersion: '3.x'
 
-  # Set up Karpenter IAM Role and Policies
+  # Configure AWS Credentials
   - task: AWSShellScript@1
-    displayName: 'Set up IAM Roles and Policies for Karpenter'
+    displayName: 'Configure Karpenter Prerequisites'
     inputs:
       awsCredentials: '$(awsConnection)'
       regionName: '$(region)'
       scriptType: 'inline'
       inlineScript: |
         set -ex
-        export CLUSTER_NAME=$(clusterName)
+        # Update kubeconfig
+        aws eks --region $(region) update-kubeconfig --name $(clusterName)
+        
+        AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        KARPENTER_IAM_ROLE_NAME="KarpenterNodeRole-$(clusterName)"
+        
+        # Create IAM role and instance profile
+        aws iam create-role \
+          --role-name "${KARPENTER_IAM_ROLE_NAME}" \
+          --assume-role-policy-document file://karpenter-node-role-trust-policy.json
+        
+        aws iam attach-role-policy \
+          --role-name "${KARPENTER_IAM_ROLE_NAME}" \
+          --policy-arn arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        
+        aws iam attach-role-policy \
+          --role-name "${KARPENTER_IAM_ROLE_NAME}" \
+          --policy-arn arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+        
+        aws iam attach-role-policy \
+          --role-name "${KARPENTER_IAM_ROLE_NAME}" \
+          --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
 
-        # Create IAM Policy
-        aws iam create-policy --policy-name KarpenterControllerPolicy --policy-document file://karpenter-policy.json || echo "Policy already exists"
-
-        # Create IAM Role for Karpenter
-        aws iam create-role --role-name KarpenterControllerRole \
-          --assume-role-policy-document file://karpenter-trust-policy.json || echo "Role already exists"
-
-        # Attach Policy to Role
-        aws iam attach-role-policy --role-name KarpenterControllerRole \
-          --policy-arn arn:aws:iam::$(accountId):policy/KarpenterControllerPolicy
-
-        # Associate IAM Role with EKS OIDC
-        eks_oidc_url=$(aws eks describe-cluster --name $CLUSTER_NAME --query "cluster.identity.oidc.issuer" --output text)
-        aws iam create-open-id-connect-provider \
-          --url $eks_oidc_url \
-          --client-id-list sts.amazonaws.com \
-          --thumbprint-list $(openssl s_client -showcerts -connect $eks_oidc_url:443 </dev/null | openssl x509 -fingerprint -noout -sha1 | cut -d= -f2) || echo "OIDC provider already exists"
-
-  # Tag Subnets for Karpenter
-  - task: AWSShellScript@1
-    displayName: 'Tag Subnets for Karpenter'
-    inputs:
-      awsCredentials: '$(awsConnection)'
-      regionName: '$(region)'
-      scriptType: 'inline'
-      inlineScript: |
-        set -ex
-        export CLUSTER_NAME=$(clusterName)
-
-        # Get Subnet IDs
-        SUBNET_IDS=$(aws ec2 describe-subnets --filters "Name=tag:aws:eks:cluster-name,Values=$CLUSTER_NAME" --query "Subnets[*].SubnetId" --output text)
-
-        # Tag Subnets
-        for subnet_id in $SUBNET_IDS; do
-          aws ec2 create-tags --resources $subnet_id --tags Key=karpenter.sh/discovery,Value=$CLUSTER_NAME
-        done
-
-  # Deploy Karpenter using Helm
+  # Install Karpenter via Helm
   - task: AWSShellScript@1
     displayName: 'Deploy Karpenter'
     inputs:
@@ -62,23 +46,55 @@ steps:
       scriptType: 'inline'
       inlineScript: |
         set -ex
-        aws eks --region $(region) update-kubeconfig --name $(clusterName)
-        helm repo add karpenter https://charts.karpenter.sh
+        AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        AWS_DEFAULT_REGION=$(region)
+        
+        helm repo add karpenter https://charts.karpenter.sh/
         helm repo update
-        helm upgrade --install karpenter karpenter/karpenter --namespace karpenter --create-namespace \
-          --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="arn:aws:iam::$(accountId):role/KarpenterControllerRole" \
-          --set clusterName=$(clusterName) \
-          --set clusterEndpoint=$(aws eks describe-cluster --name $(clusterName) --query "cluster.endpoint" --output text) \
-          --set aws.defaultInstanceProfile=KarpenterInstanceProfile
+        
+        helm upgrade --install karpenter oci://public.ecr.aws/karpenter/karpenter \
+          --version v0.32.1 \
+          --namespace karpenter \
+          --create-namespace \
+          --set "settings.aws.clusterName=$(clusterName)" \
+          --set "settings.aws.defaultInstanceProfile=KarpenterNodeInstanceProfile-$(clusterName)" \
+          --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=arn:aws:iam::${AWS_ACCOUNT_ID}:role/KarpenterControllerRole-$(clusterName)"
 
-  # Validate Karpenter Deployment
+  # Create Karpenter Provisioner
   - task: AWSShellScript@1
-    displayName: 'Validate Karpenter Deployment'
+    displayName: 'Configure Karpenter Provisioner'
     inputs:
       awsCredentials: '$(awsConnection)'
       regionName: '$(region)'
       scriptType: 'inline'
       inlineScript: |
         set -ex
-        kubectl get pods -n karpenter
-        kubectl get deployments -n karpenter
+        cat <<EOF | kubectl apply -f -
+        apiVersion: karpenter.sh/v1beta1
+        kind: Provisioner
+        metadata:
+          name: default
+        spec:
+          requirements:
+            - key: karpenter.k8s.aws/instance-category
+              operator: In
+              values: ["c", "m", "r"]
+            - key: karpenter.k8s.aws/instance-generation
+              operator: In
+              values: ["5", "6"]
+          limits:
+            resources:
+              cpu: 1000
+          providerRef:
+            name: default
+        ---
+        apiVersion: karpenter.k8s.aws/v1beta1
+        kind: AWSNodeTemplate
+        metadata:
+          name: default
+        spec:
+          subnetSelector:
+            karpenter.sh/discovery: "$(clusterName)"
+          securityGroupSelector:
+            karpenter.sh/discovery: "$(clusterName)"
+        EOF
