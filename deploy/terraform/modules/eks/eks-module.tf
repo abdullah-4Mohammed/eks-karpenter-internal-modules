@@ -99,9 +99,6 @@ resource "aws_security_group" "eks_node_sg" {
 }
 
 
-
-
-
 resource "aws_eks_cluster" "eks" {
   name     = var.cluster_name
   role_arn = var.eks_role_arn
@@ -110,7 +107,28 @@ resource "aws_eks_cluster" "eks" {
     subnet_ids = var.private_subnet_ids
     security_group_ids = [aws_security_group.eks_cluster_sg.id] # Attach the control plane security group
   }
+
+    # Add OIDC configuration
+  enabled_cluster_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
 }
+
+#begin of oidc add
+# Create OIDC provider for the EKS cluster
+data "tls_certificate" "eks" {
+  url = aws_eks_cluster.eks.identity[0].oidc[0].issuer
+}
+
+resource "aws_iam_openid_connect_provider" "eks" {
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = [data.tls_certificate.eks.certificates[0].sha1_fingerprint]
+  url             = aws_eks_cluster.eks.identity[0].oidc[0].issuer
+}
+
+# Output the OIDC issuer URL for service account configuration
+output "oidc_issuer" {
+  value = aws_eks_cluster.eks.identity[0].oidc[0].issuer
+}
+#end of oicd add
 
 resource "aws_eks_node_group" "eks_nodes" {
   cluster_name    = aws_eks_cluster.eks.name
