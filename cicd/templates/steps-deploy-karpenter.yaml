@@ -134,7 +134,13 @@ steps:
         set -ex
         AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
         AWS_DEFAULT_REGION=$(region)
+
+        # Update kubeconfig
+        aws eks --region $(region) update-kubeconfig --name $(clusterName)
         
+        # List all Helm releases in all namespaces
+        helm list --all-namespaces
+
         helm repo add karpenter https://charts.karpenter.sh/
         helm repo update
         
