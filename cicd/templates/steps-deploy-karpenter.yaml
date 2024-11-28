@@ -121,6 +121,7 @@ steps:
           --policy-name "KarpenterControllerPolicy" \
           --policy-document "${KARPENTER_CONTROLLER_POLICY}"
 
+
   # Install Karpenter via Helm
   - task: AWSShellScript@1
     displayName: 'Deploy Karpenter'
