@@ -41,6 +41,13 @@ stages:
       steps:
       - template: templates/steps-deploy-tf.yaml
 
+    - job: Deploy_Karpenter
+      displayName: Deploy Karpenter
+      dependsOn: Deploy_Terraform
+      #condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+      steps:
+      - template: templates/steps-deploy-karpenter.yaml
+
 
     # - job: Build_Push_Image
     #   displayName: Build and push docker image
