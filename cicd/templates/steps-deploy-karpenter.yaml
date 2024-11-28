@@ -57,14 +57,28 @@ steps:
         AWS_PARTITION=$(aws sts get-caller-identity --query Arn --output text | cut -d":" -f2)
         OIDC_ENDPOINT=$(aws eks describe-cluster --name $(clusterName) --query "cluster.identity.oidc.issuer" --output text)
 
+        # Replace placeholders in the trust policy document
+        sed -e "s/{{PARTITION}}/${AWS_PARTITION}/g" \
+            -e "s/{{ACCOUNT_ID}}/${AWS_ACCOUNT_ID}/g" \
+            -e "s|{{OIDC_ENDPOINT}}|${OIDC_ENDPOINT}|g" \
+            $(System.DefaultWorkingDirectory)/cicd/templates/controller-trust-policy.json > /tmp/controller-trust-policy.json
+        
         # Create IAM role for Karpenter Controller
         aws iam create-role --role-name "KarpenterControllerRole-$(clusterName)" \
-          --assume-role-policy-document file://$(System.DefaultWorkingDirectory)/cicd/templates/controller-trust-policy.json
+          --assume-role-policy-document file:///tmp/controller-trust-policy.json
 
+        
+        # Replace placeholders in the policy document
+        sed -e "s/{{PARTITION}}/${AWS_PARTITION}/g" \
+            -e "s/{{ACCOUNT_ID}}/${AWS_ACCOUNT_ID}/g" \
+            -e "s/{{CLUSTER_NAME}}/$(clusterName)/g" \
+            $(System.DefaultWorkingDirectory)/cicd/templates/controller-policy.json > /tmp/controller-policy.json
+
+        
         # Attach required policies to the role
         aws iam put-role-policy --role-name "KarpenterControllerRole-$(clusterName)" \
           --policy-name "KarpenterControllerPolicy" \
-          --policy-document file://$(System.DefaultWorkingDirectory)/cicd/templates/controller-policy.json
+          --policy-document file:///tmp/controller-policy.json
 
 
 
