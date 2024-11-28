@@ -5,41 +5,41 @@ steps:
     inputs:
       helmVersion: '3.x'
 
-  # deploy karpenter node role
-  - task: AWSShellScript@1
-    displayName: 'KarpenterNodeRole'
-    inputs:
-      awsCredentials: '$(awsConnection)'
-      regionName: '$(region)'
-      scriptType: 'inline'
-      inlineScript: |
-        set -ex
-        # Update kubeconfig
-        aws eks --region $(region) update-kubeconfig --name $(clusterName)
+  ## deploy karpenter node role
+  # - task: AWSShellScript@1
+  #   displayName: 'KarpenterNodeRole'
+  #   inputs:
+  #     awsCredentials: '$(awsConnection)'
+  #     regionName: '$(region)'
+  #     scriptType: 'inline'
+  #     inlineScript: |
+  #       set -ex
+  #       # Update kubeconfig
+  #       aws eks --region $(region) update-kubeconfig --name $(clusterName)
         
-        AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-        KARPENTER_IAM_ROLE_NAME="KarpenterNodeRole-$(clusterName)"
+  #       AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+  #       KARPENTER_IAM_ROLE_NAME="KarpenterNodeRole-$(clusterName)"
         
-        # Create IAM role and instance profile
-        aws iam create-role \
-          --role-name "${KARPENTER_IAM_ROLE_NAME}" \
-          --assume-role-policy-document file://$(System.DefaultWorkingDirectory)/cicd/templates/karpenter-node-role-trust-policy.json
+  #       # Create IAM role and instance profile
+  #       aws iam create-role \
+  #         --role-name "${KARPENTER_IAM_ROLE_NAME}" \
+  #         --assume-role-policy-document file://$(System.DefaultWorkingDirectory)/cicd/templates/karpenter-node-role-trust-policy.json
         
-        aws iam attach-role-policy \
-          --role-name "${KARPENTER_IAM_ROLE_NAME}" \
-          --policy-arn arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+  #       aws iam attach-role-policy \
+  #         --role-name "${KARPENTER_IAM_ROLE_NAME}" \
+  #         --policy-arn arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
         
-        aws iam attach-role-policy \
-          --role-name "${KARPENTER_IAM_ROLE_NAME}" \
-          --policy-arn arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+  #       aws iam attach-role-policy \
+  #         --role-name "${KARPENTER_IAM_ROLE_NAME}" \
+  #         --policy-arn arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
         
-        aws iam attach-role-policy \
-          --role-name "${KARPENTER_IAM_ROLE_NAME}" \
-          --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+  #       aws iam attach-role-policy \
+  #         --role-name "${KARPENTER_IAM_ROLE_NAME}" \
+  #         --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
         
-        aws iam attach-role-policy \
-          --role-name "${KARPENTER_IAM_ROLE_NAME}" \
-          --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+  #       aws iam attach-role-policy \
+  #         --role-name "${KARPENTER_IAM_ROLE_NAME}" \
+  #         --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
 
 #deploying karpenter controller role
   - task: AWSShellScript@1
