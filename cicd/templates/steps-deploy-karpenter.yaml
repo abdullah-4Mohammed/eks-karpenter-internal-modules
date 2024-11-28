@@ -23,7 +23,7 @@ steps:
         # Create IAM role and instance profile
         aws iam create-role \
           --role-name "${KARPENTER_IAM_ROLE_NAME}" \
-          --assume-role-policy-document file://karpenter-node-role-trust-policy.json
+          --assume-role-policy-document file://$(System.DefaultWorkingDirectory)/cicd/templates/karpenter-node-role-trust-policy.json
         
         aws iam attach-role-policy \
           --role-name "${KARPENTER_IAM_ROLE_NAME}" \
@@ -59,12 +59,12 @@ steps:
 
         # Create IAM role for Karpenter Controller
         aws iam create-role --role-name "KarpenterControllerRole-$(clusterName)" \
-          --assume-role-policy-document file://controller-trust-policy.json
+          --assume-role-policy-document file://$(System.DefaultWorkingDirectory)/cicd/templates/controller-trust-policy.json
 
         # Attach required policies to the role
         aws iam put-role-policy --role-name "KarpenterControllerRole-$(clusterName)" \
           --policy-name "KarpenterControllerPolicy" \
-          --policy-document file://controller-policy.json
+          --policy-document file://$(System.DefaultWorkingDirectory)/cicd/templates/controller-policy.json
 
 
 
