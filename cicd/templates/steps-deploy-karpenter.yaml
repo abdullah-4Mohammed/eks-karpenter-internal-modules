@@ -7,7 +7,7 @@ steps:
 
   # Configure AWS Credentials
   - task: AWSShellScript@1
-    displayName: 'Configure Karpenter Prerequisites'
+    displayName: 'KarpenterNodeRole'
     inputs:
       awsCredentials: '$(awsConnection)'
       regionName: '$(region)'
@@ -36,6 +36,37 @@ steps:
         aws iam attach-role-policy \
           --role-name "${KARPENTER_IAM_ROLE_NAME}" \
           --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        
+        aws iam attach-role-policy \
+          --role-name "${KARPENTER_IAM_ROLE_NAME}" \
+          --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+
+  - task: AWSShellScript@1
+    displayName: 'KarpenterControllerRole'
+    inputs:
+      awsCredentials: '$(awsConnection)'
+      regionName: '$(region)'
+      scriptType: 'inline'
+      inlineScript: |
+        set -ex
+        # Update kubeconfig
+        aws eks --region $(region) update-kubeconfig --name $(clusterName)
+
+        AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        AWS_PARTITION=$(aws sts get-caller-identity --query Arn --output text | cut -d":" -f2)
+        OIDC_ENDPOINT=$(aws eks describe-cluster --name $(clusterName) --query "cluster.identity.oidc.issuer" --output text)
+
+        # Create IAM role for Karpenter Controller
+        aws iam create-role --role-name "KarpenterControllerRole-$(clusterName)" \
+          --assume-role-policy-document file://controller-trust-policy.json
+
+        # Attach required policies to the role
+        aws iam put-role-policy --role-name "KarpenterControllerRole-$(clusterName)" \
+          --policy-name "KarpenterControllerPolicy" \
+          --policy-document file://controller-policy.json
+
+
 
   # Install Karpenter via Helm
   - task: AWSShellScript@1
