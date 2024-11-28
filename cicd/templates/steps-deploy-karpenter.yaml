@@ -41,7 +41,6 @@ steps:
           --role-name "${KARPENTER_IAM_ROLE_NAME}" \
           --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
 
-
   - task: AWSShellScript@1
     displayName: 'KarpenterControllerRole'
     inputs:
