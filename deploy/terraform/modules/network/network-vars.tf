@@ -15,3 +15,7 @@ variable "availability_zones" {
 variable "serviceName" {
   type = string
 }
+
+variable "cluster_name" {
+  type = string
+}

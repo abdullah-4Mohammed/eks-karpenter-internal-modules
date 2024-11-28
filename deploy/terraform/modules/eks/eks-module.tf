@@ -95,6 +95,7 @@ resource "aws_security_group" "eks_node_sg" {
   # Tags for the security group
   tags = {
     Name = "${var.cluster_name}-eks-node-sg"
+    "karpenter.sh/discovery" = var.cluster_name
   }
 }
 

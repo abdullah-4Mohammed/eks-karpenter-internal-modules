@@ -13,6 +13,7 @@ module "network" {
   availability_zones = var.availability_zones
   serviceName        = var.serviceName
   region             = var.region
+  cluster_name       = var.cluster_name
 }
 
 module "iam" {
