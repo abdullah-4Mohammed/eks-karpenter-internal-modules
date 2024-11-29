@@ -5,6 +5,123 @@ steps:
     inputs:
       helmVersion: '3.x'
 
+  # deploy karpenter node role
+  - task: AWSShellScript@1
+    displayName: 'KarpenterNodeRole'
+    inputs:
+      awsCredentials: '$(awsConnection)'
+      regionName: '$(region)'
+      scriptType: 'inline'
+      inlineScript: |
+        set -ex
+        # Update kubeconfig
+        aws eks --region $(region) update-kubeconfig --name $(clusterName)
+        
+        AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        KARPENTER_IAM_ROLE_NAME="KarpenterNodeRole-$(clusterName)"
+        
+        # Create IAM role and instance profile
+        aws iam create-role \
+          --role-name "${KARPENTER_IAM_ROLE_NAME}" \
+          --assume-role-policy-document file://$(System.DefaultWorkingDirectory)/cicd/templates/karpenter-node-role-trust-policy.json
+        
+        aws iam attach-role-policy \
+          --role-name "${KARPENTER_IAM_ROLE_NAME}" \
+          --policy-arn arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        
+        aws iam attach-role-policy \
+          --role-name "${KARPENTER_IAM_ROLE_NAME}" \
+          --policy-arn arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+        
+        aws iam attach-role-policy \
+          --role-name "${KARPENTER_IAM_ROLE_NAME}" \
+          --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        
+        aws iam attach-role-policy \
+          --role-name "${KARPENTER_IAM_ROLE_NAME}" \
+          --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+#deploying karpenter controller role
+  - task: AWSShellScript@1
+    displayName: 'KarpenterControllerRole'
+    inputs:
+      awsCredentials: '$(awsConnection)'
+      regionName: '$(region)'
+      scriptType: 'inline'
+      inlineScript: |
+        set -ex
+        # Update kubeconfig
+        aws eks --region $(region) update-kubeconfig --name $(clusterName)
+
+        AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        AWS_PARTITION=$(aws sts get-caller-identity --query Arn --output text | cut -d":" -f2)
+        OIDC_ENDPOINT=$(aws eks describe-cluster --name $(clusterName) --query "cluster.identity.oidc.issuer" --output text)
+        OIDC_PROVIDER=$(aws eks describe-cluster --name eks-karpenter-eks --query "cluster.identity.oidc.issuer" --output text | sed -e "s/^https:\/\///")
+
+        # Define the trust policy document for the Karpenter Controller role
+        KARPENTER_CONTROLLER_TRUST_POLICY=$(cat <<EOF
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Federated": "arn:aws:iam::${AWS_ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"
+              },
+              "Action": "sts:AssumeRoleWithWebIdentity",
+              "Condition": {
+                "StringEquals": {
+                  "${OIDC_PROVIDER}:sub": "system:serviceaccount:karpenter:karpenter"
+                }
+              }
+            }
+          ]
+        }
+        EOF
+        )
+
+        # Create the Karpenter Controller role with the trust policy
+        aws iam create-role --role-name "KarpenterControllerRole-$(clusterName)" \
+          --assume-role-policy-document "${KARPENTER_CONTROLLER_TRUST_POLICY}"
+
+        # Define the inline policy document for Karpenter Controller role
+        KARPENTER_CONTROLLER_POLICY=$(cat <<EOF
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "eks:DescribeCluster",
+                "sts:AssumeRole"
+              ],
+              "Resource": "*"
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "ec2:DescribeInstances",
+                "ec2:DescribeInstanceTypes",
+                "ec2:DescribeSecurityGroups",
+                "ec2:DescribeKeyPairs",
+                "ec2:DescribeSubnets",
+                "ec2:DescribeRouteTables",
+                "ec2:DescribeVpcs",
+                "ec2:DescribeAvailabilityZones",
+                "ec2:DescribeImages"
+              ],
+              "Resource": "*"
+            }
+          ]
+        }
+        EOF
+        )
+
+        # Attach the inline policy to the Karpenter Controller role
+        aws iam put-role-policy --role-name "KarpenterControllerRole-$(clusterName)" \
+          --policy-name "KarpenterControllerPolicy" \
+          --policy-document "${KARPENTER_CONTROLLER_POLICY}"
+
     # Update aws-auth ConfigMap
   - task: AWSShellScript@1
     displayName: 'Update aws-auth ConfigMap'
@@ -228,123 +345,7 @@ steps:
   #           karpenter.sh/discovery: "$(clusterName)"
   #       EOF
 
-  ## deploy karpenter node role
-  # - task: AWSShellScript@1
-  #   displayName: 'KarpenterNodeRole'
-  #   inputs:
-  #     awsCredentials: '$(awsConnection)'
-  #     regionName: '$(region)'
-  #     scriptType: 'inline'
-  #     inlineScript: |
-  #       set -ex
-  #       # Update kubeconfig
-  #       aws eks --region $(region) update-kubeconfig --name $(clusterName)
-        
-  #       AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-  #       KARPENTER_IAM_ROLE_NAME="KarpenterNodeRole-$(clusterName)"
-        
-  #       # Create IAM role and instance profile
-  #       aws iam create-role \
-  #         --role-name "${KARPENTER_IAM_ROLE_NAME}" \
-  #         --assume-role-policy-document file://$(System.DefaultWorkingDirectory)/cicd/templates/karpenter-node-role-trust-policy.json
-        
-  #       aws iam attach-role-policy \
-  #         --role-name "${KARPENTER_IAM_ROLE_NAME}" \
-  #         --policy-arn arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
-        
-  #       aws iam attach-role-policy \
-  #         --role-name "${KARPENTER_IAM_ROLE_NAME}" \
-  #         --policy-arn arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
-        
-  #       aws iam attach-role-policy \
-  #         --role-name "${KARPENTER_IAM_ROLE_NAME}" \
-  #         --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
-        
-  #       aws iam attach-role-policy \
-  #         --role-name "${KARPENTER_IAM_ROLE_NAME}" \
-  #         --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
-
-##deploying karpenter controller role
-  # - task: AWSShellScript@1
-  #   displayName: 'KarpenterControllerRole'
-  #   inputs:
-  #     awsCredentials: '$(awsConnection)'
-  #     regionName: '$(region)'
-  #     scriptType: 'inline'
-  #     inlineScript: |
-  #       set -ex
-  #       # Update kubeconfig
-  #       aws eks --region $(region) update-kubeconfig --name $(clusterName)
-
-  #       AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-  #       AWS_PARTITION=$(aws sts get-caller-identity --query Arn --output text | cut -d":" -f2)
-  #       OIDC_ENDPOINT=$(aws eks describe-cluster --name $(clusterName) --query "cluster.identity.oidc.issuer" --output text)
-  #       OIDC_PROVIDER=$(aws eks describe-cluster --name eks-karpenter-eks --query "cluster.identity.oidc.issuer" --output text | sed -e "s/^https:\/\///")
-
-  #       # Define the trust policy document for the Karpenter Controller role
-  #       KARPENTER_CONTROLLER_TRUST_POLICY=$(cat <<EOF
-  #       {
-  #         "Version": "2012-10-17",
-  #         "Statement": [
-  #           {
-  #             "Effect": "Allow",
-  #             "Principal": {
-  #               "Federated": "arn:aws:iam::${AWS_ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"
-  #             },
-  #             "Action": "sts:AssumeRoleWithWebIdentity",
-  #             "Condition": {
-  #               "StringEquals": {
-  #                 "${OIDC_PROVIDER}:sub": "system:serviceaccount:karpenter:karpenter"
-  #               }
-  #             }
-  #           }
-  #         ]
-  #       }
-  #       EOF
-  #       )
-
-  #       # Create the Karpenter Controller role with the trust policy
-  #       aws iam create-role --role-name "KarpenterControllerRole-$(clusterName)" \
-  #         --assume-role-policy-document "${KARPENTER_CONTROLLER_TRUST_POLICY}"
-
-  #       # Define the inline policy document for Karpenter Controller role
-  #       KARPENTER_CONTROLLER_POLICY=$(cat <<EOF
-  #       {
-  #         "Version": "2012-10-17",
-  #         "Statement": [
-  #           {
-  #             "Effect": "Allow",
-  #             "Action": [
-  #               "eks:DescribeCluster",
-  #               "sts:AssumeRole"
-  #             ],
-  #             "Resource": "*"
-  #           },
-  #           {
-  #             "Effect": "Allow",
-  #             "Action": [
-  #               "ec2:DescribeInstances",
-  #               "ec2:DescribeInstanceTypes",
-  #               "ec2:DescribeSecurityGroups",
-  #               "ec2:DescribeKeyPairs",
-  #               "ec2:DescribeSubnets",
-  #               "ec2:DescribeRouteTables",
-  #               "ec2:DescribeVpcs",
-  #               "ec2:DescribeAvailabilityZones",
-  #               "ec2:DescribeImages"
-  #             ],
-  #             "Resource": "*"
-  #           }
-  #         ]
-  #       }
-  #       EOF
-  #       )
-
-  #       # Attach the inline policy to the Karpenter Controller role
-  #       aws iam put-role-policy --role-name "KarpenterControllerRole-$(clusterName)" \
-  #         --policy-name "KarpenterControllerPolicy" \
-  #         --policy-document "${KARPENTER_CONTROLLER_POLICY}"
-
+  
   ## Install Karpenter CRDs
   # - task: AWSShellScript@1
   #   displayName: 'Install Karpenter CRDs'
