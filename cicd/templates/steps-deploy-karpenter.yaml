@@ -91,11 +91,11 @@ steps:
 
         # Create Karpenter namespace and apply the YAML
         kubectl create namespace "${KARPENTER_NAMESPACE}" || true
-        kubectl apply -f "https://raw.githubusercontent.com/aws/karpenter/v${KARPENTER_VERSION}/charts/karpenter/crds/provisioners.yaml"
-        kubectl apply -f "https://raw.githubusercontent.com/aws/karpenter/v${KARPENTER_VERSION}/charts/karpenter/crds/awsnodetemplates.yaml"
-        kubectl apply -f "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.sh_nodepools.yaml"
-        kubectl apply -f "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.k8s.aws_ec2nodeclasses.yaml"
-        kubectl apply -f "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.sh_nodeclaims.yaml"
+        kubectl apply -f "https://raw.githubusercontent.com/aws/karpenter/main/charts/karpenter/crds/provisioners.yaml"
+        kubectl apply -f "https://raw.githubusercontent.com/aws/karpenter/main/charts/karpenter/crds/awsnodetemplates.yaml"
+        kubectl apply -f "https://raw.githubusercontent.com/aws/karpenter-provider-aws/main/pkg/apis/crds/karpenter.sh_nodepools.yaml"
+        kubectl apply -f "https://raw.githubusercontent.com/aws/karpenter-provider-aws/main/pkg/apis/crds/karpenter.k8s.aws_ec2nodeclasses.yaml"
+        kubectl apply -f "https://raw.githubusercontent.com/aws/karpenter-provider-aws/main/pkg/apis/crds/karpenter.sh_nodeclaims.yaml"
         kubectl apply -f karpenter.yaml
 
         # Create default NodePool
