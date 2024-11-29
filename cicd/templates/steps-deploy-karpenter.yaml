@@ -122,8 +122,58 @@ steps:
   #         --policy-name "KarpenterControllerPolicy" \
   #         --policy-document "${KARPENTER_CONTROLLER_POLICY}"
 
+  ## Install Karpenter CRDs
+  # - task: AWSShellScript@1
+  #   displayName: 'Install Karpenter CRDs'
+  #   inputs:
+  #     awsCredentials: '$(awsConnection)'
+  #     regionName: '$(region)'
+  #     scriptType: 'inline'
+  #     inlineScript: |
+  #       set -ex
+  #       # Update kubeconfig
+  #       aws eks --region $(region) update-kubeconfig --name $(clusterName)
 
-  # Install Karpenter via Helm
+  #       # Install Karpenter CRDs
+  #       kubectl apply -f https://raw.githubusercontent.com/aws/karpenter/main/pkg/apis/crds/karpenter.sh_provisioners.yaml
+  #       kubectl apply -f https://raw.githubusercontent.com/aws/karpenter/main/pkg/apis/crds/karpenter.sh_awsnodetemplates.yaml
+
+    # Update aws-auth ConfigMap
+  - task: AWSShellScript@1
+    displayName: 'Update aws-auth ConfigMap'
+    inputs:
+      awsCredentials: '$(awsConnection)'
+      regionName: '$(region)'
+      scriptType: 'inline'
+      inlineScript: |
+        set -ex
+        # Set environment variables
+        AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        AWS_PARTITION="aws"  # Change this if you are using a different partition like aws-cn or aws-us-gov
+        CLUSTER_NAME=$(clusterName)
+
+        # Update kubeconfig
+        aws eks --region $(region) update-kubeconfig --name $(clusterName)
+
+        # Retrieve the current aws-auth ConfigMap
+        kubectl get configmap aws-auth -n kube-system -o yaml > aws-auth.yaml
+
+        # Add the new role to the mapRoles section
+        cat <<EOF >> aws-auth.yaml
+        - groups:
+          - system:bootstrappers
+          - system:nodes
+          ## If you intend to run Windows workloads, the kube-proxy group should be specified.
+          # For more information, see https://github.com/aws/karpenter/issues/5099.
+          # - eks:kube-proxy-windows
+          rolearn: arn:${AWS_PARTITION}:iam::${AWS_ACCOUNT_ID}:role/KarpenterNodeRole-${CLUSTER_NAME}
+          username: system:node:{{EC2PrivateDNSName}}
+        EOF
+
+        # Apply the updated ConfigMap
+        kubectl apply -f aws-auth.yaml
+  
+  # Deploy Karpenter via Helm
   - task: AWSShellScript@1
     displayName: 'Deploy Karpenter'
     inputs:
@@ -134,23 +184,142 @@ steps:
         set -ex
         AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
         AWS_DEFAULT_REGION=$(region)
+        KARPENTER_NAMESPACE="karpenter"
+        CLUSTER_NAME=$(clusterName)
+        NODEGROUP=$(nodegroup)
+
+        # Set Karpenter version
+        export KARPENTER_VERSION="1.0.8"
 
         # Update kubeconfig
         aws eks --region $(region) update-kubeconfig --name $(clusterName)
         
-        # List all Helm releases in all namespaces
-        helm list --all-namespaces
-
+        # Get the node group name
+        NODEGROUP=$(aws eks list-nodegroups --cluster-name $CLUSTER_NAME --query 'nodegroups[0]' --output text)
+        # Export the NODEGROUP environment variable
+        export NODEGROUP
+        
+        # Add Karpenter Helm repository
         helm repo add karpenter https://charts.karpenter.sh/
         helm repo update
+
+        # Generate Karpenter deployment YAML
+        helm template karpenter oci://public.ecr.aws/karpenter/karpenter --version "${KARPENTER_VERSION}" --namespace "${KARPENTER_NAMESPACE}" \
+            --set "settings.clusterName=${CLUSTER_NAME}" \
+            --set "settings.interruptionQueue=${CLUSTER_NAME}" \
+            --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=arn:aws:iam::${AWS_ACCOUNT_ID}:role/KarpenterControllerRole-${CLUSTER_NAME}" \
+            --set controller.resources.requests.cpu=1 \
+            --set controller.resources.requests.memory=1Gi \
+            --set controller.resources.limits.cpu=1 \
+            --set controller.resources.limits.memory=1Gi > karpenter.yaml
+
+        # Modify node affinity in karpenter.yaml
+        sed -i '/affinity:/a\
+          nodeAffinity:\
+            requiredDuringSchedulingIgnoredDuringExecution:\
+              nodeSelectorTerms:\
+              - matchExpressions:\
+                - key: karpenter.sh/nodepool\
+                  operator: DoesNotExist\
+                - key: eks.amazonaws.com/nodegroup\
+                  operator: In\
+                  values:\
+                  - ${NODEGROUP}\
+          podAntiAffinity:\
+            requiredDuringSchedulingIgnoredDuringExecution:\
+              - topologyKey: "kubernetes.io/hostname"' karpenter.yaml
+
+        # Create Karpenter namespace and apply the YAML
+        kubectl create namespace "${KARPENTER_NAMESPACE}" || true
+        kubectl create -f "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.sh_nodepools.yaml"
+        kubectl create -f "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.k8s.aws_ec2nodeclasses.yaml"
+        kubectl create -f "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.sh_nodeclaims.yaml"
+        kubectl apply -f karpenter.yaml
+
+        # Create default NodePool
+        cat <<EOF | envsubst | kubectl apply -f -
+        apiVersion: karpenter.sh/v1
+        kind: NodePool
+        metadata:
+          name: default
+        spec:
+          template:
+            spec:
+              requirements:
+                - key: kubernetes.io/arch
+                  operator: In
+                  values: ["amd64"]
+                - key: kubernetes.io/os
+                  operator: In
+                  values: ["linux"]
+                - key: karpenter.sh/capacity-type
+                  operator: In
+                  values: ["spot"]
+                - key: karpenter.k8s.aws/instance-category
+                  operator: In
+                  values: ["c", "m", "r"]
+                - key: karpenter.k8s.aws/instance-generation
+                  operator: Gt
+                  values: ["2"]
+              nodeClassRef:
+                group: karpenter.k8s.aws
+                kind: EC2NodeClass
+                name: default
+              expireAfter: 720h # 30 * 24h = 720h
+          limits:
+            cpu: 1000
+          disruption:
+            consolidationPolicy: WhenEmptyOrUnderutilized
+            consolidateAfter: 1m
+        ---
+        apiVersion: karpenter.k8s.aws/v1
+        kind: EC2NodeClass
+        metadata:
+          name: default
+        spec:
+          amiFamily: AL2 # Amazon Linux 2
+          role: "KarpenterNodeRole-${CLUSTER_NAME}" # replace with your cluster name
+          subnetSelectorTerms:
+            - tags:
+                karpenter.sh/discovery: "${CLUSTER_NAME}" # replace with your cluster name
+          securityGroupSelectorTerms:
+            - tags:
+                karpenter.sh/discovery: "${CLUSTER_NAME}" # replace with your cluster name
+          amiSelectorTerms:
+            - id: "ami-0a7a03417a876ba05"  # ARM AMI ID
+            - id: "ami-0c76bd4bd302b30ec"  # AMD AMI ID
+        #   - id: "${GPU_AMI_ID}" # <- GPU Optimized AMD AMI 
+        #   - name: "amazon-eks-node-${K8S_VERSION}-*" # <- automatically upgrade when a new AL2 EKS Optimized AMI is released. This is unsafe for production workloads. Validate AMIs in lower environments before deploying them to production.
+        EOF
+
+  # # Install Karpenter via Helm
+  # - task: AWSShellScript@1
+  #   displayName: 'Deploy Karpenter'
+  #   inputs:
+  #     awsCredentials: '$(awsConnection)'
+  #     regionName: '$(region)'
+  #     scriptType: 'inline'
+  #     inlineScript: |
+  #       set -ex
+  #       AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+  #       AWS_DEFAULT_REGION=$(region)
+
+  #       # Update kubeconfig
+  #       aws eks --region $(region) update-kubeconfig --name $(clusterName)
         
-        helm upgrade --install karpenter oci://public.ecr.aws/karpenter/karpenter \
-          --version v0.32.1 \
-          --namespace karpenter \
-          --create-namespace \
-          --set "settings.aws.clusterName=$(clusterName)" \
-          --set "settings.aws.defaultInstanceProfile=KarpenterNodeInstanceProfile-$(clusterName)" \
-          --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=arn:aws:iam::${AWS_ACCOUNT_ID}:role/KarpenterControllerRole-$(clusterName)"
+  #       # List all Helm releases in all namespaces
+  #       helm list --all-namespaces
+
+  #       helm repo add karpenter https://charts.karpenter.sh/
+  #       helm repo update
+        
+  #       helm upgrade --install karpenter oci://public.ecr.aws/karpenter/karpenter \
+  #         --version v0.32.1 \
+  #         --namespace karpenter \
+  #         --create-namespace \
+  #         --set "settings.aws.clusterName=$(clusterName)" \
+  #         --set "settings.aws.defaultInstanceProfile=KarpenterNodeInstanceProfile-$(clusterName)" \
+  #         --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=arn:aws:iam::${AWS_ACCOUNT_ID}:role/KarpenterControllerRole-$(clusterName)"
 
   # Create Karpenter Provisioner
   - task: AWSShellScript@1
