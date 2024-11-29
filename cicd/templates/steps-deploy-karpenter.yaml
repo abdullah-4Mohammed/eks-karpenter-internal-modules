@@ -154,45 +154,8 @@ steps:
         #   - id: "${GPU_AMI_ID}" # <- GPU Optimized AMD AMI 
         #   - name: "amazon-eks-node-${K8S_VERSION}-*" # <- automatically upgrade when a new AL2 EKS Optimized AMI is released. This is unsafe for production workloads. Validate AMIs in lower environments before deploying them to production.
         EOF
-
-  # # Install Karpenter via Helm
-  # - task: AWSShellScript@1
-  #   displayName: 'Deploy Karpenter'
-  #   inputs:
-  #     awsCredentials: '$(awsConnection)'
-  #     regionName: '$(region)'
-  #     scriptType: 'inline'
-  #     inlineScript: |
-  #       set -ex
-  #       AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-  #       AWS_DEFAULT_REGION=$(region)
-
-  #       # Update kubeconfig
-  #       aws eks --region $(region) update-kubeconfig --name $(clusterName)
         
-  #       # List all Helm releases in all namespaces
-  #       helm list --all-namespaces
-
-  #       helm repo add karpenter https://charts.karpenter.sh/
-  #       helm repo update
-        
-  #       helm upgrade --install karpenter oci://public.ecr.aws/karpenter/karpenter \
-  #         --version v0.32.1 \
-  #         --namespace karpenter \
-  #         --create-namespace \
-  #         --set "settings.aws.clusterName=$(clusterName)" \
-  #         --set "settings.aws.defaultInstanceProfile=KarpenterNodeInstanceProfile-$(clusterName)" \
-  #         --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=arn:aws:iam::${AWS_ACCOUNT_ID}:role/KarpenterControllerRole-$(clusterName)"
-
-  # Create Karpenter Provisioner
-  - task: AWSShellScript@1
-    displayName: 'Configure Karpenter Provisioner'
-    inputs:
-      awsCredentials: '$(awsConnection)'
-      regionName: '$(region)'
-      scriptType: 'inline'
-      inlineScript: |
-        set -ex
+        # Apply the Provisioner and AWSNodeTemplate resources
         cat <<EOF | kubectl apply -f -
         apiVersion: karpenter.sh/v1beta1
         kind: Provisioner
@@ -222,6 +185,73 @@ steps:
           securityGroupSelector:
             karpenter.sh/discovery: "$(clusterName)"
         EOF
+  # # Install Karpenter via Helm
+  # - task: AWSShellScript@1
+  #   displayName: 'Deploy Karpenter'
+  #   inputs:
+  #     awsCredentials: '$(awsConnection)'
+  #     regionName: '$(region)'
+  #     scriptType: 'inline'
+  #     inlineScript: |
+  #       set -ex
+  #       AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+  #       AWS_DEFAULT_REGION=$(region)
+
+  #       # Update kubeconfig
+  #       aws eks --region $(region) update-kubeconfig --name $(clusterName)
+        
+  #       # List all Helm releases in all namespaces
+  #       helm list --all-namespaces
+
+  #       helm repo add karpenter https://charts.karpenter.sh/
+  #       helm repo update
+        
+  #       helm upgrade --install karpenter oci://public.ecr.aws/karpenter/karpenter \
+  #         --version v0.32.1 \
+  #         --namespace karpenter \
+  #         --create-namespace \
+  #         --set "settings.aws.clusterName=$(clusterName)" \
+  #         --set "settings.aws.defaultInstanceProfile=KarpenterNodeInstanceProfile-$(clusterName)" \
+  #         --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=arn:aws:iam::${AWS_ACCOUNT_ID}:role/KarpenterControllerRole-$(clusterName)"
+
+  # # Create Karpenter Provisioner
+  # - task: AWSShellScript@1
+  #   displayName: 'Configure Karpenter Provisioner'
+  #   inputs:
+  #     awsCredentials: '$(awsConnection)'
+  #     regionName: '$(region)'
+  #     scriptType: 'inline'
+  #     inlineScript: |
+  #       set -ex
+  #       cat <<EOF | kubectl apply -f -
+  #       apiVersion: karpenter.sh/v1beta1
+  #       kind: Provisioner
+  #       metadata:
+  #         name: default
+  #       spec:
+  #         requirements:
+  #           - key: karpenter.k8s.aws/instance-category
+  #             operator: In
+  #             values: ["c", "m", "r"]
+  #           - key: karpenter.k8s.aws/instance-generation
+  #             operator: In
+  #             values: ["5", "6"]
+  #         limits:
+  #           resources:
+  #             cpu: 1000
+  #         providerRef:
+  #           name: default
+  #       ---
+  #       apiVersion: karpenter.k8s.aws/v1beta1
+  #       kind: AWSNodeTemplate
+  #       metadata:
+  #         name: default
+  #       spec:
+  #         subnetSelector:
+  #           karpenter.sh/discovery: "$(clusterName)"
+  #         securityGroupSelector:
+  #           karpenter.sh/discovery: "$(clusterName)"
+  #       EOF
 
   ## deploy karpenter node role
   # - task: AWSShellScript@1
