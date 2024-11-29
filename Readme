@@ -1,3 +1,5 @@
+Migrating EKS cluster from ASG to Karpenter. 
+the rest of the project is legusy from th previous project:
 Project: Three-Tier Application Deployment
 Overview
 This project demonstrates the deployment of a three-tier application consisting of a frontend, backend, and MongoDB service. The application is built with Docker and deployed to Amazon EKS (Elastic Kubernetes Service). The frontend and backend services communicate via Kubernetes Ingress and external DNS routing.
@@ -29,4 +31,4 @@ Set up an NGINX Ingress resource to route HTTP traffic from wbapp.test.dv to the
 DNS Routing:
 Configure Cloudflare DNS to point to the AWS Load Balancer (ELB) of the EKS cluster for external access.
 Environment Variables
-VUE_APP_API_URL: Dynamically set via Kubernetes Deployment, used by the frontend to interact with the backend API.
+VUE_APP_API_URL: Dynamically set via Kubernetes Deployment, used by the frontend to interact with the backend API.Migration
