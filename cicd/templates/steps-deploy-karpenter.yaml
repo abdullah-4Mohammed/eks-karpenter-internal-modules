@@ -73,19 +73,20 @@ steps:
 
         # Modify node affinity in karpenter.yaml
         sed -i '/affinity:/a\
-          \  nodeAffinity:\
-          \    requiredDuringSchedulingIgnoredDuringExecution:\
-          \      nodeSelectorTerms:\
-          \      - matchExpressions:\
-          \        - key: karpenter.sh/nodepool\
-          \          operator: DoesNotExist\
-          \        - key: eks.amazonaws.com/nodegroup\
-          \          operator: In\
-          \          values:\
-          \          - ${NODEGROUP}\
-          \  podAntiAffinity:\
-          \    requiredDuringSchedulingIgnoredDuringExecution:\
-          \    - topologyKey: "kubernetes.io/hostname"' karpenter.yaml
+          \    affinity:\
+          \      nodeAffinity:\
+          \        requiredDuringSchedulingIgnoredDuringExecution:\
+          \          nodeSelectorTerms:\
+          \          - matchExpressions:\
+          \            - key: karpenter.sh/nodepool\
+          \              operator: DoesNotExist\
+          \            - key: eks.amazonaws.com/nodegroup\
+          \              operator: In\
+          \              values:\
+          \              - ${NODEGROUP}\
+          \      podAntiAffinity:\
+          \        requiredDuringSchedulingIgnoredDuringExecution:\
+          \        - topologyKey: "kubernetes.io/hostname"' karpenter.yaml
 
 
         # Create Karpenter namespace and apply the YAML
