@@ -155,9 +155,10 @@ steps:
         #   - name: "amazon-eks-node-${K8S_VERSION}-*" # <- automatically upgrade when a new AL2 EKS Optimized AMI is released. This is unsafe for production workloads. Validate AMIs in lower environments before deploying them to production.
         EOF
 
-        # Remove Cluster Autoscaler
-        kubectl scale deploy/cluster-autoscaler -n kube-system --replicas=0
-        
+        # Remove Cluster Autoscaler if it exists
+        if kubectl get deploy/cluster-autoscaler -n kube-system > /dev/null 2>&1; then
+          kubectl scale deploy/cluster-autoscaler -n kube-system --replicas=0
+        fi
    
   # # Install Karpenter via Helm
   # - task: AWSShellScript@1
