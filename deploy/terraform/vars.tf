@@ -101,15 +101,6 @@ variable "set_sensitive" {
   default = null
 }
 
-variable "cluster_name" {
-  description = "Name of the EKS cluster"
-  type        = string
-}
-
-variable "worker_iam_role_name" {
-  description = "IAM role name used by the EKS workers"
-  type        = string
-}
 
 variable "cluster_oidc_issuer_url" {
   description = "The URL on the EKS cluster for the OpenID Connect identity provider"
