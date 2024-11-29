@@ -6,7 +6,6 @@ steps:
       helmVersion: '3.x'
 
     # Update aws-auth ConfigMap
-# Update aws-auth ConfigMap
   - task: AWSShellScript@1
     displayName: 'Update aws-auth ConfigMap'
     inputs:
@@ -27,18 +26,11 @@ steps:
         kubectl get configmap aws-auth -n kube-system -o yaml > aws-auth.yaml
 
         # Add the new role to the mapRoles section
-        cat <<EOF >> aws-auth.yaml
-        mapRoles: |
-          - rolearn: arn:${AWS_PARTITION}:iam::${AWS_ACCOUNT_ID}:role/KarpenterNodeRole-${CLUSTER_NAME}
-            username: system:node:{{EC2PrivateDNSName}}
-            groups:
-            - system:bootstrappers
-            - system:nodes
-        EOF
+        yq eval '.data.mapRoles += "\n- rolearn: arn:'${AWS_PARTITION}':iam::'${AWS_ACCOUNT_ID}':role/KarpenterNodeRole-'${CLUSTER_NAME}'\n  username: system:node:{{EC2PrivateDNSName}}\n  groups:\n  - system:bootstrappers\n  - system:nodes"' -i aws-auth.yaml
 
         # Apply the updated ConfigMap
         kubectl apply -f aws-auth.yaml
-  
+
   # Deploy Karpenter via Helm
   - task: AWSShellScript@1
     displayName: 'Deploy Karpenter'
