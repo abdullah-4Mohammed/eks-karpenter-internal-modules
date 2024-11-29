@@ -44,7 +44,7 @@ steps:
         AWS_DEFAULT_REGION=$(region)
         KARPENTER_NAMESPACE="karpenter"
         CLUSTER_NAME=$(clusterName)
-        NODEGROUP=$(nodegroup)
+        
 
         # Set Karpenter version
         export KARPENTER_VERSION="1.0.8"
