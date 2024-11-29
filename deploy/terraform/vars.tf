@@ -102,15 +102,7 @@ variable "set_sensitive" {
 }
 
 
-variable "cluster_oidc_issuer_url" {
-  description = "The URL on the EKS cluster for the OpenID Connect identity provider"
-  type        = string
-}
 
-variable "cluster_endpoint" {
-  description = "Endpoint for your Kubernetes API server"
-  type        = string
-}
 
 variable "helm_chart_version" {
   description = "The Helm chart version for Karpenter"
