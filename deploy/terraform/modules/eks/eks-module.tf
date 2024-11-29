@@ -161,3 +161,7 @@ output "cluster_endpoint" {
 output "cluster_name" {
   value = aws_eks_cluster.eks.name
 }
+
+output "cluster_oidc_issuer_url" {
+  value = aws_eks_cluster.eks.identity.0.oidc.0.issuer
+}
