@@ -8,7 +8,7 @@ resource "aws_iam_role_policy_attachment" "karpenter_ssm_policy" {
 }
 
 resource "aws_iam_instance_profile" "karpenter" {
-  name = "KarpenterNodeInstanceProfile-${var.cluster_name}"
+  name = "Kar-InstanceProfile-${var.cluster_name}"
   role = var.node_role_arn
 }
 
@@ -23,7 +23,7 @@ module "iam_assumable_role_karpenter" {
   source       = "terraform-aws-modules/iam/aws//modules/iam-assumable-role-with-oidc"
   version      = "4.7.0"
   create_role  = true
-  role_name    = "karpenter-controller-${var.cluster_name}"
+  role_name    = "karp-cont-${var.cluster_name}"
   provider_url = var.cluster_oidc_issuer_url
   oidc_fully_qualified_subjects = [
     "system:serviceaccount:${var.namespace}:${var.service_account_name}"
