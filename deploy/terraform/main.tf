@@ -54,6 +54,7 @@ module "karpenter" {
   region = var.region
   cluster_endpoint = module.eks.cluster_endpoint
   cluster_oidc_issuer_url = module.eks.cluster_oidc_issuer_url
+  node_role_name = module.iam.node_role_name
 }
 
 

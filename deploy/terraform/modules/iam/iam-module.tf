@@ -54,6 +54,15 @@ output "node_role_arn" {
   value = aws_iam_role.node_role.arn
 }
 
+output "eks_role_name" {
+  value = aws_iam_role.eks_role.name
+  
+}
+
+output "node_role_name" {
+  value = aws_iam_role.node_role.name
+  
+}
 
 # resource "aws_iam_role" "eks_role" {
 #   name = "${var.cluster_name}-eks-role"

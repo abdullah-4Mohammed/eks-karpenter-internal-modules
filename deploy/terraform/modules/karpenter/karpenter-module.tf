@@ -3,13 +3,13 @@ data "aws_iam_policy" "ssm_managed_instance" {
 }
 
 resource "aws_iam_role_policy_attachment" "karpenter_ssm_policy" {
-  role       = var.node_role_arn
+  role       = var.node_role_name
   policy_arn = data.aws_iam_policy.ssm_managed_instance.arn
 }
 
 resource "aws_iam_instance_profile" "karpenter" {
   name = "Kar-InstanceProfile-rol"
-  role = var.node_role_arn
+  role = var.node_role_name
 }
 
 resource "kubernetes_namespace" "default" {

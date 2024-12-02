@@ -17,6 +17,11 @@ variable "node_role_arn" {
   type        = string
 }
 
+variable "node_role_name" {
+  description = "The name of the IAM role"
+  type        = string
+}
+
 variable "vpc_id" {
   description = "The ID of the VPC"
   type        = string
