@@ -54,6 +54,7 @@ output "node_role_arn" {
   value = aws_iam_role.node_role.arn
 }
 
+
 # resource "aws_iam_role" "eks_role" {
 #   name = "${var.cluster_name}-eks-role"
 #   assume_role_policy = jsonencode({
