@@ -1,10 +1,4 @@
 
-#adding ins profile for karbenter
-
-resource "aws_iam_instance_profile" "node_instance_profile" {
-  name = "${var.cluster_name}-node-instance-profile"
-  role = aws_iam_role.node_role.name
-}
 
 
 
@@ -74,9 +68,7 @@ output "node_role_name" {
   
 }
 
-output "node_instance_profile_name" {
-  value = aws_iam_instance_profile.node_instance_profile.name
-}
+
 
 # resource "aws_iam_role" "eks_role" {
 #   name = "${var.cluster_name}-eks-role"
