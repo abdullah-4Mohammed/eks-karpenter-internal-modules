@@ -1,7 +1,4 @@
 
-
-
-
 resource "aws_iam_role" "eks_role" {
   name = "${var.cluster_name}-eks-role-${var.regionShortName}"
   assume_role_policy = jsonencode({
