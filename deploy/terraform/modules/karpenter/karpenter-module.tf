@@ -119,3 +119,57 @@ resource "helm_release" "default" {
 
   depends_on = [kubernetes_namespace.default]
 }
+
+
+resource "kubectl_manifest" "karpenter_node_pool" {
+  yaml_body = <<-YAML
+    apiVersion: karpenter.sh/v1beta1
+    kind: NodePool
+    metadata:
+      name: default
+    spec:
+      template:
+        spec:
+          requirements:
+            - key: kubernetes.io/arch
+              operator: In
+              values: ["amd64"]
+            - key: kubernetes.io/os
+              operator: In
+              values: ["linux"]
+            - key: karpenter.sh/capacity-type
+              operator: In
+              values: ["on-demand"]
+          nodeClassRef:
+            name: default
+      limits:
+        cpu: 1000
+      disruption:
+        consolidationPolicy: WhenEmptyOrUnderutilized
+        consolidateAfter: 1m
+    YAML
+
+  depends_on = [helm_release.karpenter]
+}
+
+resource "kubectl_manifest" "karpenter_node_class" {
+  yaml_body = <<-YAML
+    apiVersion: karpenter.k8s.aws/v1beta1
+    kind: EC2NodeClass
+    metadata:
+      name: default
+    spec:
+      amiFamily: AL2
+      role: ${module.eks.eks_managed_node_groups_iam_role_name["initial"]}
+      subnetSelectorTerms:
+        - tags:
+            karpenter.sh/discovery: ${var.cluster_name}
+      securityGroupSelectorTerms:
+        - tags:
+            karpenter.sh/discovery: ${var.cluster_name}
+      tags:
+        karpenter.sh/discovery: ${var.cluster_name}
+  YAML
+
+  depends_on = [kubectl_manifest.karpenter_node_pool]
+}
