@@ -61,7 +61,7 @@ resource "aws_iam_role_policy" "karpenter_controller" {
   })
 }
 
-resource "helm_release" "default" {
+resource "helm_release" "karpenter" {
   name       = "karpenter"
   namespace  = var.namespace
   repository = "https://charts.karpenter.sh"
@@ -85,6 +85,11 @@ resource "helm_release" "default" {
   set {
     name  = "controller.clusterEndpoint"
     value = var.cluster_endpoint
+  }
+
+  set {
+    name  = "controller.clusterOIDCIssuerURL"
+    value = var.cluster_oidc_issuer_url
   }
 
   set {
