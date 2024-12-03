@@ -163,5 +163,9 @@ output "cluster_name" {
 }
 
 output "cluster_oidc_issuer_url" {
-  value = aws_eks_cluster.eks.identity.0.oidc.0.issuer
+  value = aws_eks_cluster.eks.identity[0].oidc[0].issuer
+}
+
+output "cluster_certificate_authority_data" {
+  value = aws_eks_cluster.eks.certificate_authority[0].data
 }
