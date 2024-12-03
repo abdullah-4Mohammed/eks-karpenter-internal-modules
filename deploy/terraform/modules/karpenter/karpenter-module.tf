@@ -152,6 +152,16 @@ resource "kubectl_manifest" "karpenter_node_pool" {
   depends_on = [helm_release.karpenter]
 }
 
+
+terraform {
+  required_providers {
+    kubectl = {
+      source  = "gavinbunney/kubectl"
+      version = ">= 1.10.0"
+    }
+  }
+}
+
 resource "kubectl_manifest" "karpenter_node_class" {
   yaml_body = <<-YAML
     apiVersion: karpenter.k8s.aws/v1beta1
