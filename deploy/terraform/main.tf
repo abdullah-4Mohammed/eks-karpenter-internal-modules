@@ -1,140 +1,293 @@
-//when you call a module in Terraform, everything listed other than 
-//the source are variables for that module "left side var name". These variables are essentially 
-//arguments values that you're passing into the module.
-//you need to define these vars in the module's vars.tf file.
-
-# provider "aws" {
-#   region = "us-east-1"
-# }
-
-module "network" {
-  source             = "./modules/network"
-  vpc_cidr           = var.vpc_cidr
-  availability_zones = var.availability_zones
-  serviceName        = var.serviceName
-  region             = var.region
-  cluster_name       = var.cluster_name
+###############################################################################
+# Provider
+###############################################################################
+provider "aws" {
+    region              = var.region
+    allowed_account_ids = [var.aws_account_id]
 }
 
-module "iam" {
-  source       = "./modules/iam"
-  cluster_name = var.cluster_name
-  serviceName = var.serviceName
-  region = var.region
-  vpc_cidr = var.vpc_cidr
-  regionShortName = var.regionShortName
-  availability_zones = var.availability_zones
+provider "aws" {
+    region = "us-east-1"
+    alias  = "virginia"
 }
 
+provider "helm" {
+  kubernetes {
+    host                   = module.eks.cluster_endpoint
+    cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
 
+    exec {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      command     = "aws"
+      # This requires the awscli to be installed locally where Terraform is executed
+      args = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
+    }
+  }
+}
+
+provider "kubectl" {
+  apply_retry_count      = 5
+  host                   = module.eks.cluster_endpoint
+  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+  load_config_file       = false
+
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "aws"
+    # This requires the awscli to be installed locally where Terraform is executed
+    args = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
+  }
+}
+
+terraform {
+  backend "s3" {
+    bucket = "XXXXXXXXXXXX-bucket-state-file-karpenter"
+    region = "ap-southeast-2"
+    key    = "karpenter.tfstate"
+  }
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+    kubectl = {
+      source  = "gavinbunney/kubectl"
+      version = "~> 1.14"
+    }
+  }
+}
+
+###############################################################################
+# Data Sources
+###############################################################################
+data "aws_ecrpublic_authorization_token" "token" {
+  provider = aws.virginia
+}
+
+###############################################################################
+# VPC
+###############################################################################
+module "vpc" {
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "5.13.0"
+
+  name = "${var.cluster_name}-vpc"
+  cidr = "10.0.0.0/16"
+
+  azs             = ["${var.region}a", "${var.region}b", "${var.region}c"]
+  private_subnets = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
+  public_subnets  = ["10.0.101.0/24", "10.0.102.0/24", "10.0.103.0/24"]
+  intra_subnets   = ["10.0.104.0/24", "10.0.105.0/24", "10.0.106.0/24"]
+
+  enable_nat_gateway     = true
+  single_nat_gateway     = true
+  one_nat_gateway_per_az = false
+
+  public_subnet_tags = {
+    "kubernetes.io/role/elb" = 1
+  }
+
+  private_subnet_tags = {
+    "kubernetes.io/role/internal-elb" = 1
+    # Tags subnets for Karpenter auto-discovery
+    "karpenter.sh/discovery" = var.cluster_name
+  }
+}
+
+###############################################################################
+# EKS
+###############################################################################
 module "eks" {
-  source       = "./modules/eks"
-  cluster_name = var.cluster_name
-  eks_role_arn     = module.iam.eks_role_arn  # Pass the role_arn from IAM module
-  node_role_arn    = module.iam.node_role_arn # Pass the role_arn from IAM module
-  public_subnet_ids   = module.network.public_subnet_ids  # Pass the subnet_ids from the network module
-  private_subnet_ids  = module.network.private_subnet_ids # Pass the subnet_ids from the network module
-  vpc_id              = module.network.vpc_id             # Pass the vpc_id from the network module
-  vpc_cidr      = var.vpc_cidr     # Pass the vpc_cidr_block from the network module
-  serviceName = var.serviceName
-  region = var.region
+  source  = "terraform-aws-modules/eks/aws"
+  version = "20.24.0"
 
+  cluster_name    = var.cluster_name
+  cluster_version = "1.30"
+
+  cluster_endpoint_public_access  = true
+
+  cluster_addons = {
+    coredns                = {}
+    eks-pod-identity-agent = {}
+    kube-proxy             = {}
+    vpc-cni                = {}
+  }
+
+  vpc_id                   = module.vpc.vpc_id
+  subnet_ids               = module.vpc.private_subnets
+  control_plane_subnet_ids = module.vpc.intra_subnets
+
+  eks_managed_node_groups = {
+    karpenter = {
+      # Starting on 1.30, AL2023 is the default AMI type for EKS managed node groups
+      ami_type       = "AL2023_x86_64_STANDARD"
+      instance_types = ["m5.large"]
+
+      min_size     = 2
+      max_size     = 10
+      desired_size = 2
+      
+      taints = {
+        # This Taint aims to keep just EKS Addons and Karpenter running on this MNG
+        # The pods that do not tolerate this taint should run on nodes created by Karpenter
+        addons = {
+          key    = "CriticalAddonsOnly"
+          value  = "true"
+          effect = "NO_SCHEDULE"
+        },
+      }
+    }
+  }
+
+  # Cluster access entry
+  # To add the current caller identity as an administrator
+  enable_cluster_creator_admin_permissions = true
+
+  node_security_group_tags = {
+    # NOTE - if creating multiple security groups with this module, only tag the
+    # security group that Karpenter should utilize with the following tag
+    # (i.e. - at most, only one security group should have this tag in your account)
+    "karpenter.sh/discovery" = var.cluster_name
+  }
 }
 
+###############################################################################
+# Karpenter
+###############################################################################
 module "karpenter" {
-  source       = "./modules/karpenter"
-  cluster_name = var.cluster_name
-  eks_role_arn     = module.iam.eks_role_arn  # Pass the role_arn from IAM module
-  node_role_arn    = module.iam.node_role_arn # Pass the role_arn from IAM module
-  public_subnet_ids   = module.network.public_subnet_ids  # Pass the subnet_ids from the network module
-  private_subnet_ids  = module.network.private_subnet_ids # Pass the subnet_ids from the network module
-  vpc_id              = module.network.vpc_id             # Pass the vpc_id from the network module
-  vpc_cidr      = var.vpc_cidr     # Pass the vpc_cidr_block from the network module
-  serviceName = var.serviceName
-  region = var.region
-  cluster_endpoint = module.eks.cluster_endpoint
-  cluster_oidc_issuer_url = module.eks.cluster_oidc_issuer_url
-  node_role_name = module.iam.node_role_name
+  source = "terraform-aws-modules/eks/aws//modules/karpenter"
+
+  cluster_name = module.eks.cluster_name
+
+  enable_v1_permissions = true
+
+  enable_pod_identity             = true
+  create_pod_identity_association = true
+
+  # Attach additional IAM policies to the Karpenter node IAM role
+  node_iam_role_additional_policies = {
+    AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+  }
 }
 
+###############################################################################
+# Karpenter Helm
+###############################################################################
+resource "helm_release" "karpenter" {
+  namespace           = "kube-system"
+  name                = "karpenter"
+  repository          = "oci://public.ecr.aws/karpenter"
+  repository_username = data.aws_ecrpublic_authorization_token.token.user_name
+  repository_password = data.aws_ecrpublic_authorization_token.token.password
+  chart               = "karpenter"
+  version             = "1.0.0"
+  wait                = false
 
+  values = [
+    <<-EOT
+    serviceAccount:
+      name: ${module.karpenter.service_account}
+    settings:
+      clusterName: ${module.eks.cluster_name}
+      clusterEndpoint: ${module.eks.cluster_endpoint}
+      interruptionQueue: ${module.karpenter.queue_name}
+    EOT
+  ]
+}
 
+###############################################################################
+# Karpenter Kubectl
+###############################################################################
+resource "kubectl_manifest" "karpenter_node_pool" {
+  yaml_body = <<-YAML
+    apiVersion: karpenter.sh/v1beta1
+    kind: NodePool
+    metadata:
+      name: default
+    spec:
+      template:
+        spec:
+          nodeClassRef:
+            name: default
+          requirements:
+            - key: "karpenter.k8s.aws/instance-category"
+              operator: In
+              values: ["c", "m", "r"]
+            - key: "karpenter.k8s.aws/instance-cpu"
+              operator: In
+              values: ["4", "8", "16", "32"]
+            - key: "karpenter.k8s.aws/instance-hypervisor"
+              operator: In
+              values: ["nitro"]
+            - key: "karpenter.k8s.aws/instance-generation"
+              operator: Gt
+              values: ["2"]
+      limits:
+        cpu: 1000
+      disruption:
+        consolidationPolicy: WhenEmpty
+        consolidateAfter: 30s
+  YAML
 
+  depends_on = [
+    kubectl_manifest.karpenter_node_class
+  ]
+}
 
+resource "kubectl_manifest" "karpenter_node_class" {
+  yaml_body = <<-YAML
+    apiVersion: karpenter.k8s.aws/v1beta1
+    kind: EC2NodeClass
+    metadata:
+      name: default
+    spec:
+      amiFamily: AL2023
+      role: ${module.karpenter.node_iam_role_name}
+      subnetSelectorTerms:
+        - tags:
+            karpenter.sh/discovery: ${module.eks.cluster_name}
+      securityGroupSelectorTerms:
+        - tags:
+            karpenter.sh/discovery: ${module.eks.cluster_name}
+      tags:
+        karpenter.sh/discovery: ${module.eks.cluster_name}
+  YAML
 
+  depends_on = [
+    helm_release.karpenter
+  ]
+}
 
-////
-# module "eks" {
-#   source = "terraform-aws-modules/eks/aws"
-#   version = "19.15.1"
-#   cluster_name = "wboard-eks"
-#   cluster_version = "1.26"
-#   cluster_endpoint_public_access = true #The API server pulic. manage the cluster using kubectl from anywhere.
-#   //false: The API server endpoint will only be accessible from within the VPC.
-#   // This enhances security but requires you to be within the VPC or use a VPN/other access method to manage the cluster.//
-#   vpc_id                   = module.vpc.vpc_id
-#   subnet_ids               = module.vpc.private_subnets
-#   //the subnets where the EKS control plane (the management layer of Kubernetes) will be deployed.
-#   //The control plane runs in an account managed by AWS, and the Kubernetes API is exposed via the Amazon EKS endpoint.
-#   //Ensures high availability and fault tolerance for the control plane by spreading it across multiple availability zones.
-#   control_plane_subnet_ids = module.vpc.intra_subnets
-#   // Essential for internal service communication.
-#   cluster_addons = {
-#     coredns = {
-#       most_recent = true
-#     }
-#     //  Manages network rules on nodes to ensure communication between services. 
-#     // It's necessary for routing network traffic efficiently. 
-#     kube-proxy = {
-#       most_recent = true
-#     }
-#     //Manages the networking for pods, providing IP addresses to them from the VPC. 
-#     //It's crucial for pod networking within AWS.
-#     vpc-cni = {
-#       most_recent = true
-#     }
-#   }
+###############################################################################
+# Inflate deployment
+###############################################################################
+resource "kubectl_manifest" "karpenter_example_deployment" {
+  yaml_body = <<-YAML
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: inflate
+    spec:
+      replicas: 0
+      selector:
+        matchLabels:
+          app: inflate
+      template:
+        metadata:
+          labels:
+            app: inflate
+        spec:
+          terminationGracePeriodSeconds: 0
+          containers:
+            - name: inflate
+              image: public.ecr.aws/eks-distro/kubernetes/pause:3.7
+              resources:
+                requests:
+                  cpu: 1
+  YAML
 
-#   eks_managed_node_group_defaults = {
-#     ami_type       = "AL2_x86_64"
-#     instance_types = ["t2.micro"]
-#     //whether to attach the primary security group associated with the cluster to the node groups.
-#     //The primary security group is typically created by the EKS module itself if not provided.
-#     attach_cluster_primary_security_group = true
-#   }
-#   eks_managed_node_groups = {
-#     eks_node_group = {
-#       min_size     = 1
-#       max_size     = 8
-#       desired_size = 2
-#       capacity_type  = "SPOT"
-#     }
-#   }
-
-#   tags = {
-#     Environment = "test"
-#   }
-# }
-
-# module "vpc" {
-#   source  = "terraform-aws-modules/vpc/aws"
-#   version = "~> 5.0"
-
-#   name = "${local.resourceName}-vpc"
-#   cidr = local.vpc_cidr
-
-#   azs             = local.azs
-#   private_subnets = local.private_subnets
-#   public_subnets  = local.public_subnets
-#   intra_subnets   = local.intra_subnets
-
-#   enable_nat_gateway = true
-
-#   public_subnet_tags = {
-#     "kubernetes.io/role/elb" = 1
-#   }
-
-#   private_subnet_tags = {
-#     "kubernetes.io/role/internal-elb" = 1
-#   }
-# }
+  depends_on = [
+    helm_release.karpenter
+  ]
+}
