@@ -9,6 +9,7 @@ trigger:
     - cicd/templates/steps-deploy-shared.yaml
     - cicd/shared-pipeline.yaml
     
+    
 pool:
   vmImage: 'ubuntu-latest'
 
