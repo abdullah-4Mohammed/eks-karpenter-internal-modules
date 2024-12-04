@@ -1,7 +1,7 @@
 variables:
   region: 'eu-west-2'
   awsConnection: "AzToAWS"
-  serviceName: eks-karpenter
+  serviceName: karpenter
   backendBucketName: "backend-tfstate"
   backendBucket: "$(serviceName)-$(backendBucketName)-$(environment)-$(regionShortName)"
   regionShortName: euw2

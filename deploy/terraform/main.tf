@@ -41,9 +41,9 @@ provider "kubectl" {
 
 terraform {
   backend "s3" {
-    bucket = "XXXXXXXXXXXX-bucket-state-file-karpenter"
-    region = "ap-southeast-2"
-    key    = "karpenter.tfstate"
+    bucket = "${local.backendBucket}"
+    region = "${local.region}"
+    key    = "${local.key}"
   }
 
   required_providers {
