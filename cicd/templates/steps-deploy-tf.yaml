@@ -26,6 +26,14 @@ steps:
     backendAwsKey: 'tf/$(environment).tfstate'
     allowTelemetryCollection: true
 
+# list resources in tfstate file
+- task: Bash@3
+  displayName: "List Terraform state resources"
+  inputs:
+    targetType: 'inline'
+    script: |
+      terraform state list
+
 - task: TerraformCLI@2 
   displayName: 'Terraform plan'
   inputs:
