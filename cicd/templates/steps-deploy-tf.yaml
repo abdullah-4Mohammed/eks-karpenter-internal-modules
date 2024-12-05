@@ -28,6 +28,7 @@ steps:
 
 # list resources in tfstate file
 - task: TerraformCLI@2
+  displayName: 'Terraform state list'
   inputs:
     command: 'state'
     subCommand: 'list'
