@@ -27,12 +27,17 @@ steps:
     allowTelemetryCollection: true
 
 # list resources in tfstate file
-- task: Bash@3
-  displayName: "List Terraform state resources"
+- task: TerraformCLI@2
   inputs:
-    targetType: 'inline'
-    script: |
-      terraform state list
+    command: 'state'
+    subCommand: 'list'
+    workingDirectory: '$(System.DefaultWorkingDirectory)/deploy/terraform'
+    allowTelemetryCollection: true
+    backendType: 'aws'
+    backendServiceAws: '$(awsConnection)'
+    backendAwsRegion: '$(region)'
+    backendAwsBucket: '$(backendBucket)'
+    backendAwsKey: 'tf/$(environment).tfstate'
 
 - task: TerraformCLI@2 
   displayName: 'Terraform plan'
