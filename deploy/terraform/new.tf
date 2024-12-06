@@ -8,6 +8,12 @@ provider "aws" {
   alias  = "virginia"
 }
 
+provider "kubernetes" {
+  host                   = aws_eks_cluster.main.endpoint
+  cluster_ca_certificate = base64decode(aws_eks_cluster.main.certificate_authority[0].data)
+  token                  = data.aws_eks_cluster_auth.main.token
+}
+
 provider "helm" {
   kubernetes {
     host                   = aws_eks_cluster.main.endpoint
@@ -378,12 +384,29 @@ resource "aws_iam_role" "karpenter_controller" {
   })
 }
 
+##################
+# Fetch the thumbprint using a local-exec provisioner
+resource "null_resource" "fetch_thumbprint" {
+  provisioner "local-exec" {
+    command = <<EOT
+openssl s_client -showcerts -servername ${aws_eks_cluster.main.identity[0].oidc[0].issuer} -connect ${aws_eks_cluster.main.identity[0].oidc[0].issuer}:443 </dev/null 2>/dev/null | openssl x509 -outform PEM > oidc.pem
+openssl x509 -in oidc.pem -fingerprint -noout | sed -e 's/://g' -e 's/^.*=//' > thumbprint.txt
+EOT
+  }
+}
+
+# Read the thumbprint from the local file
+data "local_file" "thumbprint" {
+  filename = "${path.module}/thumbprint.txt"
+}
+
 # OIDC Provider
 resource "aws_iam_openid_connect_provider" "eks_oidc" {
   client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = []
+  thumbprint_list = [trimspace(data.local_file.thumbprint.content)]
   url             = aws_eks_cluster.main.identity[0].oidc[0].issuer
 }
+###############
 
 # Example Inflate Deployment
 resource "kubernetes_deployment" "inflate" {
