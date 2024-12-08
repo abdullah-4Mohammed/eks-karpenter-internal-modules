@@ -357,11 +357,11 @@ resource "aws_iam_role" "karpenter_controller" {
 }
 
 ############
-resource "aws_eks_addon" "ebs_csi_driver" {
-  cluster_name = aws_eks_cluster.main.name
-  addon_name   = "aws-ebs-csi-driver"
-  addon_version = "v1.25.0"  # Check the latest version
-}
+# resource "aws_eks_addon" "ebs_csi_driver" {
+#   cluster_name = aws_eks_cluster.main.name
+#   addon_name   = "aws-ebs-csi-driver"
+#   addon_version = "v1.25.0"  # Check the latest version
+# }
 
 ###############
 data "tls_certificate" "eks_oidc" {
