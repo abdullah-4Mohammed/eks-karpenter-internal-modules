@@ -92,9 +92,7 @@ resource "aws_vpc" "main" {
   tags = {
     Name = "karpenter-eks-vpc"
   }
-  depends_on = [
-    data.aws_eks_cluster.main
-  ]
+  
 }
 
 resource "aws_subnet" "private" {
