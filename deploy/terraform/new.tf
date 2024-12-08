@@ -49,6 +49,10 @@ terraform {
   }
 
   required_providers {
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
+    }
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
@@ -353,36 +357,17 @@ resource "aws_iam_role" "karpenter_controller" {
 }
 
 
-##################
-# Modify the null_resource to ensure a clean 40-character SHA-1 thumbprint
-resource "null_resource" "fetch_thumbprint" {
-  provisioner "local-exec" {
-    command = <<-EOT
-      ISSUER=$(aws eks describe-cluster --name ${var.cluster_name} --query "cluster.identity.oidc.issuer" --output text | sed 's|https://||')
-      THUMBPRINT=$(openssl s_client -showcerts -servername "$ISSUER" -connect "$ISSUER:443" </dev/null 2>/dev/null | openssl x509 -fingerprint -noout | cut -d'=' -f2 | tr -d ':')
-      echo "$THUMBPRINT" > ${path.module}/thumbprint.txt
-    EOT
-  }
-  
-  triggers = {
-    cluster_name = var.cluster_name
-  }
+###############
+data "tls_certificate" "eks_oidc" {
+  url = aws_eks_cluster.main.identity[0].oidc[0].issuer
 }
-
-# Adjust the local_file data source to ensure clean thumbprint
-data "local_file" "thumbprint" {
-  filename = "${path.module}/thumbprint.txt"
-  
-  depends_on = [null_resource.fetch_thumbprint]
-}
-
-# OIDC Provider with careful thumbprint handling
+# OIDC Provider using the TLS certificate's SHA1 fingerprint
 resource "aws_iam_openid_connect_provider" "eks_oidc" {
   client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = [trimspace(data.local_file.thumbprint.content)]
+  thumbprint_list = [data.tls_certificate.eks_oidc.certificates[0].sha1_fingerprint]
   url             = aws_eks_cluster.main.identity[0].oidc[0].issuer
 }
-###############
+##################
 
 # Example Inflate Deployment
 resource "kubernetes_deployment" "inflate" {
