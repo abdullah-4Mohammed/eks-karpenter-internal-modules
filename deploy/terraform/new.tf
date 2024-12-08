@@ -65,11 +65,19 @@ terraform {
 # Declare the aws_eks_cluster_auth data source
 data "aws_eks_cluster_auth" "main" {
   name = var.cluster_name
+
+  depends_on = [
+    aws_eks_cluster.main
+  ]
 }
 
 # Declare the aws_eks_cluster data source
 data "aws_eks_cluster" "main" {
   name = var.cluster_name
+
+  depends_on = [
+    aws_eks_cluster.main
+  ]
 }
 
 
