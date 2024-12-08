@@ -356,6 +356,12 @@ resource "aws_iam_role" "karpenter_controller" {
   ]
 }
 
+############
+resource "aws_eks_addon" "ebs_csi_driver" {
+  cluster_name = aws_eks_cluster.main.name
+  addon_name   = "aws-ebs-csi-driver"
+  addon_version = "v1.25.0"  # Check the latest version
+}
 
 ###############
 data "tls_certificate" "eks_oidc" {
@@ -407,3 +413,73 @@ resource "kubernetes_deployment" "inflate" {
   }
 }
 
+###########
+
+resource "helm_release" "karpenter" {
+  namespace        = "karpenter"
+  create_namespace = true
+
+  name       = "karpenter"
+  repository = "oci://public.ecr.aws/karpenter"
+  chart      = "karpenter"
+  version    = "v0.32.1"
+
+  set {
+    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+    value = aws_iam_role.karpenter_controller.arn
+  }
+
+  set {
+    name  = "settings.aws.clusterName"
+    value = var.cluster_name
+  }
+
+  set {
+    name  = "settings.aws.defaultInstanceProfile"
+    value = "KarpenterNodeInstanceProfile"
+  }
+
+  depends_on = [
+    aws_eks_cluster.main,
+    aws_eks_node_group.karpenter
+  ]
+}
+
+resource "kubectl_manifest" "karpenter_provisioner" {
+  yaml_body = <<-YAML
+apiVersion: karpenter.sh/v1beta1
+kind: Provisioner
+metadata:
+  name: default
+spec:
+  requirements:
+    - key: kubernetes.io/arch
+      operator: In
+      values: ["amd64"]
+    - key: kubernetes.io/os
+      operator: In
+      values: ["linux"]
+    - key: karpenter.sh/capacity-type
+      operator: In
+      values: ["spot", "on-demand"]
+  limits:
+    resources:
+      cpu: 1000
+  providerRef:
+    name: default
+---
+apiVersion: karpenter.k8s.aws/v1beta1
+kind: AWSNodeTemplate
+metadata:
+  name: default
+spec:
+  subnetSelector:
+    karpenter.sh/discovery: "karpenter-eks"
+  securityGroupSelector:
+    karpenter.sh/discovery: "karpenter-eks"
+  YAML
+
+  depends_on = [
+    helm_release.karpenter
+  ]
+}
