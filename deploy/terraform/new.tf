@@ -356,11 +356,23 @@ openssl s_client -showcerts -servername ${aws_eks_cluster.main.identity[0].oidc[
 openssl x509 -in oidc.pem -fingerprint -noout | sed -e 's/://g' -e 's/^.*=//' > thumbprint.txt
 EOT
   }
+  
+   triggers = {
+    cluster_name = var.cluster_name
+  }
+
+  depends_on = [
+    data.aws_eks_cluster.main
+  ]
 }
 
 # Read the thumbprint from the local file
 data "local_file" "thumbprint" {
   filename = "${path.module}/thumbprint.txt"
+
+   depends_on = [
+    null_resource.fetch_thumbprint
+  ]
 }
 
 # OIDC Provider
@@ -370,7 +382,8 @@ resource "aws_iam_openid_connect_provider" "eks_oidc" {
   url             = aws_eks_cluster.main.identity[0].oidc[0].issuer
 
   depends_on = [
-    data.aws_eks_cluster.main
+    data.aws_eks_cluster.main,
+    null_resource.fetch_thumbprint
   ]
 }
 ###############
