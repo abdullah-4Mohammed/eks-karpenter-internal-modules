@@ -354,13 +354,12 @@ resource "aws_iam_role" "karpenter_controller" {
 
 
 ##################
-# Fetch the thumbprint using a local-exec provisioner
-
+# Modify the null_resource to ensure a clean 40-character SHA-1 thumbprint
 resource "null_resource" "fetch_thumbprint" {
   provisioner "local-exec" {
     command = <<-EOT
       ISSUER=$(aws eks describe-cluster --name ${var.cluster_name} --query "cluster.identity.oidc.issuer" --output text | sed 's|https://||')
-      THUMBPRINT=$(echo | openssl s_client -servername "$ISSUER" -connect "$ISSUER:443" 2>/dev/null | openssl x509 -fingerprint -noout | cut -d'=' -f2 | tr -d ':')
+      THUMBPRINT=$(openssl s_client -showcerts -servername "$ISSUER" -connect "$ISSUER:443" </dev/null 2>/dev/null | openssl x509 -fingerprint -noout | cut -d'=' -f2 | tr -d ':')
       echo "$THUMBPRINT" > ${path.module}/thumbprint.txt
     EOT
   }
@@ -370,20 +369,18 @@ resource "null_resource" "fetch_thumbprint" {
   }
 }
 
-# Adjust the local_file data source
+# Adjust the local_file data source to ensure clean thumbprint
 data "local_file" "thumbprint" {
   filename = "${path.module}/thumbprint.txt"
   
   depends_on = [null_resource.fetch_thumbprint]
 }
-##################
-# OIDC Provider
+
+# OIDC Provider with careful thumbprint handling
 resource "aws_iam_openid_connect_provider" "eks_oidc" {
   client_id_list  = ["sts.amazonaws.com"]
   thumbprint_list = [trimspace(data.local_file.thumbprint.content)]
   url             = aws_eks_cluster.main.identity[0].oidc[0].issuer
-
-  
 }
 ###############
 
