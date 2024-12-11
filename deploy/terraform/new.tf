@@ -565,7 +565,7 @@ resource "helm_release" "karpenter" {
 # Create the Karpenter Provisioner
 resource "kubectl_manifest" "karpenter_provisioner" {
   yaml_body = <<-YAML
-apiVersion: karpenter.sh/v1beta1
+apiVersion: karpenter.sh/v1alpha5
 kind: Provisioner
 metadata:
   name: karpenter
@@ -587,7 +587,7 @@ spec:
   providerRef:
     name: default
 ---
-apiVersion: karpenter.sh/v1beta1
+apiVersion: karpenter.sh/v1alpha5
 kind: AWSNodeTemplate
 metadata:
   name: default
