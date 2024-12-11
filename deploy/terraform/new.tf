@@ -65,6 +65,9 @@ terraform {
 }
 
 
+data "aws_ecrpublic_authorization_token" "token" {
+  provider = aws.virginia
+}
 
 # Declare the aws_eks_cluster_auth data source
 data "aws_eks_cluster_auth" "main" {
