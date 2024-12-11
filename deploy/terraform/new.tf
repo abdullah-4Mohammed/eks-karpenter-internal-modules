@@ -566,65 +566,6 @@ resource "helm_release" "karpenter" {
   ]
 }
 
-# First, install Karpenter CRDs separately
-resource "kubectl_manifest" "karpenter_crds" {
-  yaml_body = <<-YAML
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  annotations:
-    controller-gen.kubebuilder.io/version: v0.9.2
-  name: provisioners.karpenter.sh
-spec:
-  group: karpenter.sh
-  names:
-    kind: Provisioner
-    listKind: ProvisionerList
-    plural: provisioners
-    singular: provisioner
-  scope: Cluster
-  versions:
-    - name: v1beta1
-      schema:
-        openAPIV3Schema:
-          properties:
-            apiVersion:
-              type: string
-            kind:
-              type: string
-            metadata:
-              type: object
-            spec:
-              type: object
-              x-kubernetes-preserve-unknown-fields: true
-          type: object
-      served: true
-      storage: true
-      subresources:
-        status: {}
-    - name: v1alpha5
-      schema:
-        openAPIV3Schema:
-          properties:
-            apiVersion:
-              type: string
-            kind:
-              type: string
-            metadata:
-              type: object
-            spec:
-              type: object
-              x-kubernetes-preserve-unknown-fields: true
-          type: object
-      served: true
-      storage: false
-YAML
-
-  depends_on = [
-    helm_release.karpenter
-  ]
-}
-
 # Then create the Provisioner
 resource "kubectl_manifest" "karpenter_provisioner" {
   yaml_body = <<-YAML
@@ -662,7 +603,6 @@ spec:
 YAML
 
   depends_on = [
-    kubectl_manifest.karpenter_crds
+    helm_release.karpenter  # Ensure the provisioner is created after Karpenter is installed
   ]
 }
-
