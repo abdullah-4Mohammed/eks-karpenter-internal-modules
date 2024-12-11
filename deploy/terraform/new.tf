@@ -238,11 +238,6 @@ resource "aws_eks_cluster" "main" {
     endpoint_public_access  = true
   }
 
-    # Set authentication mode
-  kubernetes_network_config {
-    service_ipv4_cidr = "10.100.0.0/16"
-  }
-  
   # Ensure the IAM Role has proper permissions before creating the cluster
   depends_on = [
     aws_iam_role_policy_attachment.eks_cluster_policy,
