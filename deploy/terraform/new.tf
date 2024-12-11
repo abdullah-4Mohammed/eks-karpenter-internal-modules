@@ -469,139 +469,280 @@ resource "aws_iam_role_policy" "karpenter_sqs_policy" {
     ]
   })
 }
-############
 
-# Example Inflate Deployment
-resource "kubernetes_deployment" "inflate" {
-  metadata {
-    name = "inflate"
-  }
 
-  spec {
-    replicas = 0
-    selector {
-      match_labels = {
-        app = "inflate"
-      }
-    }
+###############################################################################
+# Karpenter
+###############################################################################
+module "karpenter" {
+  source = "terraform-aws-modules/eks/aws//modules/karpenter"
 
-    template {
-      metadata {
-        labels = {
-          app = "inflate"
-        }
-      }
+  cluster_name = module.eks.cluster_name
 
-      spec {
-        container {
-          name  = "inflate"
-          image = "public.ecr.aws/eks-distro/kubernetes/pause:3.7"
-          
-          resources {
-            requests = {
-              cpu = "1"
-            }
-          }
-        }
-        termination_grace_period_seconds = 0
-      }
-    }
+  enable_v1_permissions = true
+
+  enable_pod_identity             = true
+  create_pod_identity_association = true
+
+  # Attach additional IAM policies to the Karpenter node IAM role
+  node_iam_role_additional_policies = {
+    AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
   }
 }
 
-###########
-data "aws_ecrpublic_authorization_token" "token" {
-  provider = aws.virginia
-}
-#############
+###############################################################################
+# Karpenter Helm
+###############################################################################
 resource "helm_release" "karpenter" {
-  namespace        = "karpenter"
-  create_namespace = true
-
+  namespace           = "kube-system"
   name                = "karpenter"
-  repository          = "https://charts.karpenter.sh"  # Use the official Helm repository
+  repository          = "oci://public.ecr.aws/karpenter"
+  repository_username = data.aws_ecrpublic_authorization_token.token.user_name
+  repository_password = data.aws_ecrpublic_authorization_token.token.password
   chart               = "karpenter"
-  version             = "0.16.3"
+  version             = "1.0.0"
   wait                = false
 
   values = [
     <<-EOT
     serviceAccount:
-      name: "karpenter"
+      name: ${module.karpenter.service_account}
     settings:
-      clusterName: "${aws_eks_cluster.main.name}"
-      clusterEndpoint: "${aws_eks_cluster.main.endpoint}"
-      interruptionQueue: "${aws_sqs_queue.karpenter_interruption_queue.name}"
-
+      clusterName: ${module.eks.cluster_name}
+      clusterEndpoint: ${module.eks.cluster_endpoint}
+      interruptionQueue: ${module.karpenter.queue_name}
     EOT
   ]
-
-  set {
-    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
-    value = aws_iam_role.karpenter_controller.arn
-  }
-
-  set {
-    name  = "settings.aws.clusterName"
-    value = var.cluster_name
-  }
-
-  set {
-    name  = "settings.aws.defaultInstanceProfile"
-    value = "KarpenterNodeInstanceProfile"
-  }
-
-  set {
-    name  = "crds.create"
-    value = "true"
-  }
-
-  depends_on = [
-    aws_eks_cluster.main,
-    aws_eks_node_group.karpenter
-  ]
 }
 
-# Create the Karpenter Provisioner
-resource "kubectl_manifest" "karpenter_provisioner" {
+###############################################################################
+# Karpenter Kubectl
+###############################################################################
+resource "kubectl_manifest" "karpenter_node_pool" {
   yaml_body = <<-YAML
-apiVersion: karpenter.sh/v1alpha5
-kind: Provisioner
-metadata:
-  name: karpenter
-  namespace: karpenter
-spec:
-  requirements:
-    - key: kubernetes.io/arch
-      operator: In
-      values: ["amd64"]
-    - key: kubernetes.io/os
-      operator: In
-      values: ["linux"]
-    - key: karpenter.sh/capacity-type
-      operator: In
-      values: ["spot", "on-demand"]
-  limits:
-    resources:
-      cpu: 1000
-  providerRef:
-    name: default
----
-apiVersion: karpenter.sh/v1alpha5
-kind: AWSNodeTemplate
-metadata:
-  name: default
-spec:
-  subnetSelector:
-    karpenter.sh/discovery: "karpenter-eks"
-  securityGroupSelector:
-    karpenter.sh/discovery: "karpenter-eks"
-YAML
+    apiVersion: karpenter.sh/v1beta1
+    kind: NodePool
+    metadata:
+      name: default
+    spec:
+      template:
+        spec:
+          nodeClassRef:
+            name: default
+          requirements:
+            - key: "karpenter.k8s.aws/instance-category"
+              operator: In
+              values: ["c", "m", "r"]
+            - key: "karpenter.k8s.aws/instance-cpu"
+              operator: In
+              values: ["4", "8", "16", "32"]
+            - key: "karpenter.k8s.aws/instance-hypervisor"
+              operator: In
+              values: ["nitro"]
+            - key: "karpenter.k8s.aws/instance-generation"
+              operator: Gt
+              values: ["2"]
+      limits:
+        cpu: 1000
+      disruption:
+        consolidationPolicy: WhenEmpty
+        consolidateAfter: 30s
+  YAML
 
   depends_on = [
-    helm_release.karpenter  # Ensure the provisioner is created after Karpenter is installed
+    kubectl_manifest.karpenter_node_class
   ]
 }
+
+resource "kubectl_manifest" "karpenter_node_class" {
+  yaml_body = <<-YAML
+    apiVersion: karpenter.k8s.aws/v1beta1
+    kind: EC2NodeClass
+    metadata:
+      name: default
+    spec:
+      amiFamily: AL2023
+      role: ${module.karpenter.node_iam_role_name}
+      subnetSelectorTerms:
+        - tags:
+            karpenter.sh/discovery: ${module.eks.cluster_name}
+      securityGroupSelectorTerms:
+        - tags:
+            karpenter.sh/discovery: ${module.eks.cluster_name}
+      tags:
+        karpenter.sh/discovery: ${module.eks.cluster_name}
+  YAML
+
+  depends_on = [
+    helm_release.karpenter
+  ]
+}
+
+###############################################################################
+# Inflate deployment
+###############################################################################
+resource "kubectl_manifest" "karpenter_example_deployment" {
+  yaml_body = <<-YAML
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: inflate
+    spec:
+      replicas: 0
+      selector:
+        matchLabels:
+          app: inflate
+      template:
+        metadata:
+          labels:
+            app: inflate
+        spec:
+          terminationGracePeriodSeconds: 0
+          containers:
+            - name: inflate
+              image: public.ecr.aws/eks-distro/kubernetes/pause:3.7
+              resources:
+                requests:
+                  cpu: 1
+  YAML
+
+  depends_on = [
+    helm_release.karpenter
+  ]
+}
+# ############
+
+# # Example Inflate Deployment
+# resource "kubernetes_deployment" "inflate" {
+#   metadata {
+#     name = "inflate"
+#   }
+
+#   spec {
+#     replicas = 0
+#     selector {
+#       match_labels = {
+#         app = "inflate"
+#       }
+#     }
+
+#     template {
+#       metadata {
+#         labels = {
+#           app = "inflate"
+#         }
+#       }
+
+#       spec {
+#         container {
+#           name  = "inflate"
+#           image = "public.ecr.aws/eks-distro/kubernetes/pause:3.7"
+          
+#           resources {
+#             requests = {
+#               cpu = "1"
+#             }
+#           }
+#         }
+#         termination_grace_period_seconds = 0
+#       }
+#     }
+#   }
+# }
+
+# ###########
+# data "aws_ecrpublic_authorization_token" "token" {
+#   provider = aws.virginia
+# }
+# #############
+# resource "helm_release" "karpenter" {
+#   namespace        = "karpenter"
+#   create_namespace = true
+
+#   name                = "karpenter"
+#   repository          = "https://charts.karpenter.sh"  # Use the official Helm repository
+#   chart               = "karpenter"
+#   version             = "0.16.3"
+#   wait                = false
+
+#   values = [
+#     <<-EOT
+#     serviceAccount:
+#       name: "karpenter"
+#     settings:
+#       clusterName: "${aws_eks_cluster.main.name}"
+#       clusterEndpoint: "${aws_eks_cluster.main.endpoint}"
+#       interruptionQueue: "${aws_sqs_queue.karpenter_interruption_queue.name}"
+
+#     EOT
+#   ]
+
+#   set {
+#     name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+#     value = aws_iam_role.karpenter_controller.arn
+#   }
+
+#   set {
+#     name  = "settings.aws.clusterName"
+#     value = var.cluster_name
+#   }
+
+#   set {
+#     name  = "settings.aws.defaultInstanceProfile"
+#     value = "KarpenterNodeInstanceProfile"
+#   }
+
+#   set {
+#     name  = "crds.create"
+#     value = "true"
+#   }
+
+#   depends_on = [
+#     aws_eks_cluster.main,
+#     aws_eks_node_group.karpenter
+#   ]
+# }
+
+# # Create the Karpenter Provisioner
+# resource "kubectl_manifest" "karpenter_provisioner" {
+#   yaml_body = <<-YAML
+# apiVersion: karpenter.sh/v1alpha5
+# kind: Provisioner
+# metadata:
+#   name: karpenter
+#   namespace: karpenter
+# spec:
+#   requirements:
+#     - key: kubernetes.io/arch
+#       operator: In
+#       values: ["amd64"]
+#     - key: kubernetes.io/os
+#       operator: In
+#       values: ["linux"]
+#     - key: karpenter.sh/capacity-type
+#       operator: In
+#       values: ["spot", "on-demand"]
+#   limits:
+#     resources:
+#       cpu: 1000
+#   providerRef:
+#     name: default
+# ---
+# apiVersion: karpenter.sh/v1alpha5
+# kind: AWSNodeTemplate
+# metadata:
+#   name: default
+# spec:
+#   subnetSelector:
+#     karpenter.sh/discovery: "karpenter-eks"
+#   securityGroupSelector:
+#     karpenter.sh/discovery: "karpenter-eks"
+# YAML
+
+#   depends_on = [
+#     helm_release.karpenter  # Ensure the provisioner is created after Karpenter is installed
+#   ]
+# }
 
 # resource "helm_release" "karpenter" {
 #   namespace        = "karpenter"
