@@ -514,20 +514,16 @@ data "aws_ecrpublic_authorization_token" "token" {
   provider = aws.virginia
 }
 #############
-
 resource "helm_release" "karpenter" {
   namespace        = "karpenter"
   create_namespace = true
 
   name                = "karpenter"
-  repository          = "oci://public.ecr.aws/karpenter"
-  repository_username = data.aws_ecrpublic_authorization_token.token.user_name
-  repository_password = data.aws_ecrpublic_authorization_token.token.password
+  repository          = "https://charts.karpenter.sh"  # Use the official Helm repository
   chart               = "karpenter"
   version             = "1.1.0"
   wait                = false
-  ## interruptionQueue: "${aws_sqs_queue.karpenter_interruption_queue.name}"  
-  ## you can add it to the values below if you want to use the interruption queue
+
   values = [
     <<-EOT
     serviceAccount:
@@ -536,7 +532,7 @@ resource "helm_release" "karpenter" {
       clusterName: "${aws_eks_cluster.main.name}"
       clusterEndpoint: "${aws_eks_cluster.main.endpoint}"
       interruptionQueue: "${aws_sqs_queue.karpenter_interruption_queue.name}"
-      
+
     EOT
   ]
 
@@ -566,7 +562,7 @@ resource "helm_release" "karpenter" {
   ]
 }
 
-# Then create the Provisioner
+# Create the Karpenter Provisioner
 resource "kubectl_manifest" "karpenter_provisioner" {
   yaml_body = <<-YAML
 apiVersion: karpenter.sh/v1beta1
@@ -606,3 +602,95 @@ YAML
     helm_release.karpenter  # Ensure the provisioner is created after Karpenter is installed
   ]
 }
+
+# resource "helm_release" "karpenter" {
+#   namespace        = "karpenter"
+#   create_namespace = true
+
+#   name                = "karpenter"
+#   repository          = "oci://public.ecr.aws/karpenter"
+#   repository_username = data.aws_ecrpublic_authorization_token.token.user_name
+#   repository_password = data.aws_ecrpublic_authorization_token.token.password
+#   chart               = "karpenter"
+#   version             = "1.1.0"
+#   wait                = false
+#   ## interruptionQueue: "${aws_sqs_queue.karpenter_interruption_queue.name}"  
+#   ## you can add it to the values below if you want to use the interruption queue
+#   values = [
+#     <<-EOT
+#     serviceAccount:
+#       name: "karpenter"
+#     settings:
+#       clusterName: "${aws_eks_cluster.main.name}"
+#       clusterEndpoint: "${aws_eks_cluster.main.endpoint}"
+#       interruptionQueue: "${aws_sqs_queue.karpenter_interruption_queue.name}"
+      
+#     EOT
+#   ]
+
+#   set {
+#     name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+#     value = aws_iam_role.karpenter_controller.arn
+#   }
+
+#   set {
+#     name  = "settings.aws.clusterName"
+#     value = var.cluster_name
+#   }
+
+#   set {
+#     name  = "settings.aws.defaultInstanceProfile"
+#     value = "KarpenterNodeInstanceProfile"
+#   }
+
+#   set {
+#     name  = "crds.create"
+#     value = "true"
+#   }
+
+#   depends_on = [
+#     aws_eks_cluster.main,
+#     aws_eks_node_group.karpenter
+#   ]
+# }
+
+# # Then create the Provisioner
+# resource "kubectl_manifest" "karpenter_provisioner" {
+#   yaml_body = <<-YAML
+# apiVersion: karpenter.sh/v1beta1
+# kind: Provisioner
+# metadata:
+#   name: karpenter
+#   namespace: karpenter
+# spec:
+#   requirements:
+#     - key: kubernetes.io/arch
+#       operator: In
+#       values: ["amd64"]
+#     - key: kubernetes.io/os
+#       operator: In
+#       values: ["linux"]
+#     - key: karpenter.sh/capacity-type
+#       operator: In
+#       values: ["spot", "on-demand"]
+#   limits:
+#     resources:
+#       cpu: 1000
+#   providerRef:
+#     name: default
+# ---
+# apiVersion: karpenter.sh/v1beta1
+# kind: AWSNodeTemplate
+# metadata:
+#   name: default
+# spec:
+#   subnetSelector:
+#     karpenter.sh/discovery: "karpenter-eks"
+#   securityGroupSelector:
+#     karpenter.sh/discovery: "karpenter-eks"
+# YAML
+
+#   depends_on = [
+#     helm_release.karpenter  # Ensure the provisioner is created after Karpenter is installed
+#   ]
+# }
