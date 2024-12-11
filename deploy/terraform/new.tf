@@ -610,6 +610,11 @@ resource "kubectl_manifest" "karpenter_example_deployment" {
     helm_release.karpenter
   ]
 }
+
+###########
+data "aws_ecrpublic_authorization_token" "token" {
+  provider = aws.virginia
+}
 # ############
 
 # # Example Inflate Deployment
