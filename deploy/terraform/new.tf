@@ -344,7 +344,7 @@ resource "aws_iam_role" "karpenter_controller" {
         Action = "sts:AssumeRoleWithWebIdentity"
         Condition = {
           StringEquals = {
-            "${aws_iam_openid_connect_provider.eks_oidc.url}:sub" = "system:serviceaccount:kube-system:karpenter"
+            "${aws_iam_openid_connect_provider.eks_oidc.url}:sub" = "system:serviceaccount:karpenter:karpenter"
           }
         }
       }
@@ -355,6 +355,35 @@ resource "aws_iam_role" "karpenter_controller" {
   ]
 }
 
+
+resource "aws_iam_role_policy" "karpenter_controller" {
+  name = "karpenter-controller-policy"
+  role = aws_iam_role.karpenter_controller.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ec2:CreateLaunchTemplate",
+          "ec2:CreateFleet",
+          "ec2:RunInstances",
+          "ec2:DescribeInstances",
+          "ec2:DescribeInstanceTypes",
+          "ec2:DescribeRouteTables",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeVpcs",
+          "ec2:DeleteLaunchTemplate",
+          "ec2:TerminateInstances",
+          # Add other necessary EC2 permissions
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
 ############
 # resource "aws_eks_addon" "ebs_csi_driver" {
 #   cluster_name = aws_eks_cluster.main.name
