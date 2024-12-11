@@ -377,7 +377,16 @@ resource "aws_iam_role_policy" "karpenter_controller" {
           "ec2:DescribeVpcs",
           "ec2:DeleteLaunchTemplate",
           "ec2:TerminateInstances",
-          # Add other necessary EC2 permissions
+          "ec2:DescribeInstanceTypeOfferings",
+          "ec2:DescribeLaunchTemplates",
+          "ec2:CreateTags",
+          "ec2:DeleteTags",
+          "ec2:DescribeSpotPriceHistory",
+          "pricing:GetProducts",
+          "ssm:GetParameter",
+          "iam:PassRole",
+          "ec2:DescribeImages",
+          "ec2:DescribeSpotInstanceRequests"
         ]
         Resource = "*"
       }
@@ -386,11 +395,16 @@ resource "aws_iam_role_policy" "karpenter_controller" {
 }
 ############
 # resource "aws_eks_addon" "ebs_csi_driver" {
-#   cluster_name = aws_eks_cluster.main.name
-#   addon_name   = "aws-ebs-csi-driver"
-#   addon_version = "v1.25.0"  # Check the latest version
+#   cluster_name             = aws_eks_cluster.main.name
+#   addon_name              = "aws-ebs-csi-driver"
+#   addon_version           = "v1.25.0"
+#   service_account_role_arn = aws_iam_role.ebs_csi_driver.arn
 # }
 
+resource "aws_iam_instance_profile" "karpenter_instance_profile" {
+  name = "KarpenterNodeInstanceProfile"
+  role = aws_iam_role.eks_node_group.name
+}
 ###############
 data "tls_certificate" "eks_oidc" {
   url = aws_eks_cluster.main.identity[0].oidc[0].issuer
@@ -419,6 +433,21 @@ resource "aws_sqs_queue" "karpenter_interruption_queue" {
   }
 }
 
+resource "aws_cloudwatch_event_rule" "spot_interruption" {
+  name        = "capture-spot-interruption"
+  description = "Capture EC2 Spot Instance Interruption Warnings"
+
+  event_pattern = jsonencode({
+    source      = ["aws.ec2"]
+    detail-type = ["EC2 Spot Instance Interruption Warning"]
+  })
+}
+
+resource "aws_cloudwatch_event_target" "spot_interruption" {
+  rule      = aws_cloudwatch_event_rule.spot_interruption.name
+  target_id = "SendToSQS"
+  arn       = aws_sqs_queue.karpenter_interruption_queue.arn
+}
 # IAM Policy to allow Karpenter to use the SQS Queue
 resource "aws_iam_role_policy" "karpenter_sqs_policy" {
   name = "karpenter-sqs-policy"
