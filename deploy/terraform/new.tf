@@ -521,7 +521,7 @@ resource "helm_release" "karpenter" {
   name                = "karpenter"
   repository          = "https://charts.karpenter.sh"  # Use the official Helm repository
   chart               = "karpenter"
-  version             = "v1.1.0"
+  version             = "v1.1.1"
   wait                = false
 
   values = [
