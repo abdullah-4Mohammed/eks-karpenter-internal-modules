@@ -506,6 +506,7 @@ resource "helm_release" "karpenter" {
     settings:
       clusterName: "${aws_eks_cluster.main.name}"
       clusterEndpoint: "${aws_eks_cluster.main.endpoint}"
+      interruptionQueue: "${aws_sqs_queue.karpenter_interruption_queue.name}"
       
     EOT
   ]
