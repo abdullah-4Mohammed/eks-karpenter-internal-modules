@@ -237,13 +237,6 @@ resource "aws_eks_cluster" "main" {
     security_group_ids      = [aws_security_group.eks_cluster.id]
     endpoint_public_access  = true
   }
-
-  # Authentication modes setup (API and API_AND_CONFIG_MAP are valid)
-  identity {
-    oidc {
-       issuer = "https://oidc.eks.${var.region}.amazonaws.com/id/${aws_eks_cluster.main.identity[0].oidc[0].issuer}"
-    }
-  }
   
   # Ensure the IAM Role has proper permissions before creating the cluster
   depends_on = [
