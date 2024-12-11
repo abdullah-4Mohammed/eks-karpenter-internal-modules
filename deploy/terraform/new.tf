@@ -497,7 +497,8 @@ resource "helm_release" "karpenter" {
   chart               = "karpenter"
   version             = "1.1.0"
   wait                = false
-
+  ## interruptionQueue: "${aws_sqs_queue.karpenter_interruption_queue.name}"  
+  ## you can add it to the values below if you want to use the interruption queue
   values = [
     <<-EOT
     serviceAccount:
@@ -544,6 +545,7 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.9.2
   name: provisioners.karpenter.sh
+  namespace: karpenter
 spec:
   group: karpenter.sh
   names:
@@ -599,7 +601,8 @@ resource "kubectl_manifest" "karpenter_provisioner" {
 apiVersion: karpenter.sh/v1beta1
 kind: Provisioner
 metadata:
-  name: default
+  name: karpenter
+  namespace: karpenter
 spec:
   requirements:
     - key: kubernetes.io/arch
