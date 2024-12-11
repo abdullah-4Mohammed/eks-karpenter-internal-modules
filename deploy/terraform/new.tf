@@ -477,7 +477,7 @@ resource "aws_iam_role_policy" "karpenter_sqs_policy" {
 module "karpenter" {
   source = "terraform-aws-modules/eks/aws//modules/karpenter"
 
-  cluster_name = module.eks.cluster_name
+  cluster_name = var.cluster_name
 
   enable_v1_permissions = true
 
@@ -508,8 +508,8 @@ resource "helm_release" "karpenter" {
     serviceAccount:
       name: ${module.karpenter.service_account}
     settings:
-      clusterName: ${module.eks.cluster_name}
-      clusterEndpoint: ${module.eks.cluster_endpoint}
+      clusterName: var.cluster_name
+      clusterEndpoint: ${aws_eks_cluster.main.endpoint}
       interruptionQueue: ${module.karpenter.queue_name}
     EOT
   ]
@@ -565,12 +565,12 @@ resource "kubectl_manifest" "karpenter_node_class" {
       role: ${module.karpenter.node_iam_role_name}
       subnetSelectorTerms:
         - tags:
-            karpenter.sh/discovery: ${module.eks.cluster_name}
+            karpenter.sh/discovery: 
       securityGroupSelectorTerms:
         - tags:
-            karpenter.sh/discovery: ${module.eks.cluster_name}
+            karpenter.sh/discovery: var.cluster_name
       tags:
-        karpenter.sh/discovery: ${module.eks.cluster_name}
+        karpenter.sh/discovery: var.cluster_name
   YAML
 
   depends_on = [
