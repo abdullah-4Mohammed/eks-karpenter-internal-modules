@@ -403,6 +403,45 @@ resource "aws_iam_openid_connect_provider" "eks_oidc" {
 }
 ##################
 
+#sqs setup
+# Create SQS Queue for Karpenter Interruption Events
+resource "aws_sqs_queue" "karpenter_interruption_queue" {
+  name = "karpenter-interruption-queue"
+  
+  # Optional: Configure queue properties
+  visibility_timeout_seconds = 300
+  message_retention_seconds  = 1209600  # 14 days
+  
+  tags = {
+    Name        = "Karpenter Interruption Queue"
+    ManagedBy   = "Terraform"
+    Cluster     = var.cluster_name
+  }
+}
+
+# IAM Policy to allow Karpenter to use the SQS Queue
+resource "aws_iam_role_policy" "karpenter_sqs_policy" {
+  name = "karpenter-sqs-policy"
+  role = aws_iam_role.karpenter_controller.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes",
+          "sqs:GetQueueUrl",
+          "sqs:ReceiveMessage"
+        ]
+        Resource = aws_sqs_queue.karpenter_interruption_queue.arn
+      }
+    ]
+  })
+}
+############
+
 # Example Inflate Deployment
 resource "kubernetes_deployment" "inflate" {
   metadata {
@@ -466,7 +505,7 @@ resource "helm_release" "karpenter" {
     settings:
       clusterName: "${aws_eks_cluster.main.name}"
       clusterEndpoint: "${aws_eks_cluster.main.endpoint}"
-      interruptionQueue: "karpenter-interruption-queue"
+      
     EOT
   ]
 
