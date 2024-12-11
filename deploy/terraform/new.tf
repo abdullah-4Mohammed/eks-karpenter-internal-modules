@@ -241,7 +241,7 @@ resource "aws_eks_cluster" "main" {
   # Authentication modes setup (API and API_AND_CONFIG_MAP are valid)
   identity {
     oidc {
-      issuer = "https://oidc.eks.${var.region}.amazonaws.com/id/${aws_eks_cluster.main.cluster_oidc_issuer}"
+       issuer = "https://oidc.eks.${var.region}.amazonaws.com/id/${aws_eks_cluster.main.identity[0].oidc[0].issuer}"
     }
   }
   
